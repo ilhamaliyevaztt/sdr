@@ -1,0 +1,48 @@
+# --- Bağımlılıqlar ---
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Build nəticəsi ---
+dist/
+build/
+.cache/
+
+# --- Mühit dəyişənləri (HEÇ VAXT commit etməyin) ---
+.env
+.env.*
+!.env.example
+.dev.vars
+*.local
+
+# --- Sistem faylları ---
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+
+# --- Redaktorlar ---
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# --- Loglar ---
+logs/
+*.log
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# --- Arxivlər ---
+*.tar.gz
+*.zip
+*.bak
+*.backup
+
+# --- Test nəticələri ---
+coverage/
+.nyc_output/

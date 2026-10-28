@@ -1,0 +1,22 @@
+{
+  "name": "hesab-emekhaqqi",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hesab — kiçik bizneslər üçün əməkhaqqı, avans və ödəniş uçotu (statik SPA + Supabase)",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/check.mjs"
+  },
+  "keywords": [
+    "payroll",
+    "supabase",
+    "static-site",
+    "render",
+    "spa"
+  ],
+  "license": "MIT"
+}
