@@ -58,13 +58,29 @@ Sayt **tək səhifəli tətbiqdir (SPA)** və naviqasiya tamamilə yaddaşdaxili
    kopyalayıb **Run** edin.
 3. **Project Settings → API** bölməsindən götürün:
    - `Project URL` → `https://<ref>.supabase.co`
-   - `anon public` (və ya `publishable`) açar
+   - `publishable` açar (`sb_publishable_...`) — **tövsiyə olunur**
+   - və ya köhnə `anon public` açar (`eyJ...`)
 4. **Authentication → Providers → Email** aktiv olsun.
    - Tövsiyə: *Confirm email* **aktiv** saxlanılsın — işçi hesabının e-poçt
      sahibinə bağlanması bu təsdiqə əsaslanır.
 
-> ⚠️ `service_role` açarı **heç vaxt** frontend-də istifadə olunmur və repoya
-> yazılmır.
+> ⚠️ **URL ↔ açar uyğunluğu:** `SUPABASE_URL`-dəki `<ref>` hissəsi açarın
+> JWT payload-ındaki `ref` ilə **eyni** olmalıdır. Ən çox rast gəlinən
+> "Supabase-ə qoşulmur" səbəbi URL-dəki yazı xətasıdır (məsələn
+> `bmslfaltcw…` yerinə `bmslfalctcw…`). `npm run check` və `npm run build`
+> bu uyğunsuzluğu aşkar edib dayanır.
+
+> ⚠️ `service_role` açarı və `sb_secret_...` açarı **heç vaxt** frontend-də
+> istifadə olunmur və repoya yazılmır. Hər ikisi RLS-i tam keçir.
+> `scripts/build.mjs` və `scripts/check.mjs` bunu yoxlayır; aşkar olunarsa
+> build dayanır.
+
+**Cari layihə dəyərləri** (`assets/js/config.js`):
+
+| Dəyişən | Dəyər |
+|---------|-------|
+| Layihə ref | `bmslfalctcwjonsasgez` |
+| `SUPABASE_URL` | `https://bmslfalctcwjonsasgez.supabase.co` |
 
 ### 3.2 Render.com
 
@@ -74,8 +90,12 @@ Sayt **tək səhifəli tətbiqdir (SPA)** və naviqasiya tamamilə yaddaşdaxili
 2. `render.yaml` avtomatik oxunur.
 3. Environment dəyişənlərini doldurun:
    - `SUPABASE_URL` = `https://<ref>.supabase.co`
-   - `SUPABASE_ANON_KEY` = anon / publishable açar
+   - `SUPABASE_PUBLISHABLE_KEY` = `sb_publishable_...` (tövsiyə olunur)
+   - `SUPABASE_ANON_KEY` = anon açar (yalnız köhnə format istifadə edirsinizsə)
 4. **Apply** → deploy başlayır.
+
+> Əgər heç bir mühit dəyişəni təyin etməsəniz, build `assets/js/config.js`
+> faylındaki fallback dəyərləri istifadə edir — sayt yenə işləyir.
 
 **Variant B — əl ilə Static Site:**
 
@@ -84,15 +104,15 @@ Sayt **tək səhifəli tətbiqdir (SPA)** və naviqasiya tamamilə yaddaşdaxili
 | Service Type | **Static Site** |
 | Build Command | `npm run build` |
 | Publish Directory | `dist` |
-| Environment | `SUPABASE_URL`, `SUPABASE_ANON_KEY` |
+| Environment | `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` |
 
 Custom Domain və HTTPS Render tərəfindən avtomatik idarə olunur.
 
 ### 3.3 Lokal yoxlama
 
 ```bash
-npm run check        # struktur + sintaksis + import yoxlaması
-SUPABASE_URL=... SUPABASE_ANON_KEY=... npm run build
+npm run check        # struktur + sintaksis + import + Supabase konfiq yoxlaması
+SUPABASE_URL=... SUPABASE_PUBLISHABLE_KEY=... npm run build
 npx serve dist       # və ya hər hansı statik server
 ```
 

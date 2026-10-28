@@ -7,19 +7,50 @@
 const env = window.__HESAB_ENV__ || {};
 
 export const SUPABASE_URL = String(env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
-export const SUPABASE_ANON_KEY = String(env.SUPABASE_ANON_KEY || '').trim();
+
+/**
+ * Publik açar seçimi:
+ *   1. SUPABASE_PUBLISHABLE_KEY — yeni format (sb_publishable_...)
+ *   2. SUPABASE_ANON_KEY        — köhnə format (eyJ... role:"anon")
+ * Hər ikisi publikdir və yalnız RLS ilə qorunan sorğular üçündür.
+ * `service_role` / `sb_secret_...` HEÇ VAXT buraya düşməməlidir.
+ */
+function resolvePublicKey() {
+  const candidates = [env.SUPABASE_PUBLISHABLE_KEY, env.SUPABASE_ANON_KEY];
+  for (const raw of candidates) {
+    const key = String(raw || '').trim();
+    if (!key) continue;
+    // Səhv konfiqurasiya — brauzerdə gizli açar ola bilməz.
+    // Modul yüklənərkən throw etmirik: xəta getClient()-də qaldırılır ki,
+    // tətbiq "fatal screen" göstərə bilsin (ağ səhifə olmasın).
+    if (key.startsWith('sb_secret_') || /"role"\s*:\s*"service_role"/.test(key)) {
+      return { key: '', invalidSecret: true };
+    }
+    return { key, invalidSecret: false };
+  }
+  return { key: '', invalidSecret: false };
+}
+
+const resolvedKey = resolvePublicKey();
+
+export const SUPABASE_PUBLIC_KEY = resolvedKey.key;
+/** Geriyə uyğunluq üçün köhnə ad */
+export const SUPABASE_ANON_KEY = SUPABASE_PUBLIC_KEY;
 
 let client = null;
 
 export function getClient() {
   if (client) return client;
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  if (resolvedKey.invalidSecret) {
+    throw new Error('SECRET_KEY_IN_FRONTEND');
+  }
+  if (!SUPABASE_URL || !SUPABASE_PUBLIC_KEY) {
     throw new Error('MISSING_CONFIG');
   }
   if (!window.supabase || typeof window.supabase.createClient !== 'function') {
     throw new Error('LIBRARY_MISSING');
   }
-  client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  client = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
@@ -36,8 +67,11 @@ export function getClient() {
 /* ----------------------------- XƏTA MƏTNİ ------------------------------- */
 
 const ERROR_MAP = {
-  MISSING_CONFIG: 'Supabase konfiqurasiyası tapılmadı. SUPABASE_URL və SUPABASE_ANON_KEY təyin edilməlidir.',
+  MISSING_CONFIG:
+    'Supabase konfiqurasiyası tapılmadı. SUPABASE_URL və SUPABASE_PUBLISHABLE_KEY (və ya SUPABASE_ANON_KEY) təyin edilməlidir.',
   LIBRARY_MISSING: 'Supabase kitabxanası yüklənmədi. Səhifəni yeniləyin.',
+  SECRET_KEY_IN_FRONTEND:
+    'Konfiqurasiya xətası: gizli açar (service_role / sb_secret_) frontend-də istifadə oluna bilməz. Publik açarla əvəz edin.',
   PGRST301: 'Sessiya vaxtı bitdi. Yenidən daxil olun.',
   '23505': 'Bu məlumat artıq mövcuddur.',
   '23503': 'Əlaqəli qeyd tapılmadı.',

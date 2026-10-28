@@ -32,8 +32,9 @@
       <h1>Supabase bağlantısı qurulmadı</h1>
       <p id="fatal-message">Layihə URL-i cavab vermir. Zəhmət olmasa konfiqurasiyanı yoxlayın.</p>
       <ul class="fatal__list">
-        <li><code>assets/js/config.js</code> faylında <code>SUPABASE_URL</code> və <code>SUPABASE_ANON_KEY</code> dəyərlərini yoxlayın.</li>
-        <li>Render-də <code>SUPABASE_URL</code> və <code>SUPABASE_ANON_KEY</code> environment dəyişənlərinin təyin olunduğuna əmin olun.</li>
+        <li><code>assets/js/config.js</code> faylında <code>SUPABASE_URL</code> və <code>SUPABASE_PUBLISHABLE_KEY</code> (və ya <code>SUPABASE_ANON_KEY</code>) dəyərlərini yoxlayın.</li>
+        <li>URL-dəki layihə ref-i açarın içindəki <code>ref</code> ilə eyni olmalıdır — ən çox rast gəlinən səhv URL yazı xətasıdır.</li>
+        <li>Render-də <code>SUPABASE_URL</code> və <code>SUPABASE_PUBLISHABLE_KEY</code> environment dəyişənlərinin təyin olunduğuna əmin olun.</li>
         <li>Supabase layihəsinin aktiv (paused deyil) olduğunu yoxlayın.</li>
       </ul>
       <button class="btn btn--primary" type="button" id="fatal-retry">Yenidən cəhd et</button>

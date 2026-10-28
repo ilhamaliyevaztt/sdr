@@ -180,13 +180,52 @@ async function main() {
   const policyCount = (sql.match(/create policy/gi) || []).length;
   log(`  ✓ ${tables.length} cədvəl, ${policyCount} RLS siyasəti`);
 
-  log('\n── Təhlükəsizlik ──────────────────────────────');
+  log('\n── Supabase konfiqurasiyası ───────────────────');
   const cfg = await readFile(path.join(ROOT, 'assets', 'js', 'config.js'), 'utf8');
+
+  // 1) URL ↔ açar ref uyğunluğu — ən çox rast gəlinən səhv (URL yazı xətası)
+  const urlMatch = cfg.match(/SUPABASE_URL:\s*['"`]([^'"`]+)['"`]/);
+  const cfgUrl = urlMatch ? urlMatch[1].trim() : '';
+  const urlRef = (cfgUrl.match(/^https?:\/\/([a-z0-9]+)\.supabase\.co\/?$/i) || [])[1];
+
+  if (!urlRef) {
+    errors.push(`config.js: SUPABASE_URL düzgün formatda deyil → "${cfgUrl}" (gözlənilən: https://<ref>.supabase.co)`);
+  } else {
+    const urls = cfg.match(/eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g) || [];
+    let mismatch = null;
+    for (const t of urls) {
+      try {
+        const payload = JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString('utf8'));
+        if (payload?.ref && String(payload.ref).toLowerCase() !== urlRef.toLowerCase()) {
+          mismatch = String(payload.ref);
+        }
+      } catch {
+        /* keç */
+      }
+    }
+    if (mismatch) {
+      errors.push(
+        `config.js: SUPABASE_URL ref-i "${urlRef}", açarın ref-i "${mismatch}" — UYĞUN DEYİL. URL yazı xətası ola bilər.`
+      );
+    } else {
+      log(`  ✓ URL ref ↔ açar ref uyğundur (${urlRef})`);
+    }
+  }
+
+  // 2) Publik açar mövcuddurmu?
+  const hasPublishable = /SUPABASE_PUBLISHABLE_KEY:\s*['"`]sb_publishable_[A-Za-z0-9_-]+['"`]/.test(cfg);
+  const hasAnon = /SUPABASE_ANON_KEY:\s*['"`]eyJ[A-Za-z0-9_.-]+['"`]/.test(cfg);
+  if (!hasPublishable && !hasAnon) {
+    errors.push('config.js: nə SUPABASE_PUBLISHABLE_KEY, nə də SUPABASE_ANON_KEY təyin olunmayıb.');
+  } else {
+    log(`  ✓ Publik açar mövcuddur (${hasPublishable ? 'publishable' : 'anon'})`);
+  }
+
+  log('\n── Təhlükəsizlik ──────────────────────────────');
   // Yalnız REAL açarları yoxla (şərhlərdəki söz deyil)
   if (/sb_secret_[A-Za-z0-9_-]{10,}/.test(cfg)) {
     errors.push('config.js daxilində secret açarı (sb_secret_) var — QADAĞANDIR.');
-  } else if (/"role"\s*:\s*"?service_role"?/.test(cfg) || /eyJ[A-Za-z0-9_.-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/.test(cfg)) {
-    // JWT-nin payload-ında service_role olub-olmadığını yoxla
+  } else {
     const jwts = cfg.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g) || [];
     let hasServiceRole = false;
     for (const t of jwts) {
@@ -199,13 +238,14 @@ async function main() {
     }
     if (hasServiceRole) errors.push('config.js daxilində service_role JWT-si var — QADAĞANDIR.');
     else log('  ✓ Frontend konfiqurasiyasında yalnız publik açar');
-  } else {
-    log('  ✓ Frontend konfiqurasiyasında yalnız publik açar');
   }
   const allJs = jsFiles.map((f) => f);
   for (const f of allJs) {
     const src = await readFile(f, 'utf8');
-    if (/sb_secret_/.test(src)) errors.push(`Secret açar aşkarlandı: ${path.relative(ROOT, f)}`);
+    // Yalnız REAL açar materialı (prefix + uzun bədən) — tək "sb_secret_" sözü guard kodunda ola bilər
+    if (/sb_secret_[A-Za-z0-9_-]{10,}/.test(src)) {
+      errors.push(`Secret açar aşkarlandı: ${path.relative(ROOT, f)}`);
+    }
   }
   log('  ✓ Kodda secret açar yoxdur');
 
