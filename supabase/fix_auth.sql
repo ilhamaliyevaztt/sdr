@@ -372,6 +372,81 @@ begin
 end $$;
 
 -- ============================================================================
+--  7.1 ★ BİZNES YARATMA XƏTASI («Bu əməliyyat üçün icazəniz yoxdur») ★
+--  ---------------------------------------------------------------------------
+--  SƏBƏB: tətbiq `.insert({...}).select().single()` işlədir → PostgREST
+--  `Prefer: return=representation` göndərir → PostgreSQL `INSERT ... RETURNING`
+--  üçün cədvəlin SELECT siyasəti də yoxlanılır.
+--
+--  `businesses_select_own` siyasəti yalnız `public.can_read_business(id)` idi və
+--  o, **STABLE** `current_business_ids()`-a güvənir — sorğunun ƏVVƏLİNDƏKİ
+--  snapshot-u görür, təzə yaradılan sətri isə GÖRMÜR → 42501.
+--
+--  HƏLL: SELECT siyasətinə `owner_id = auth.uid()` əlavə edilir. Bu şərt sətrin
+--  öz sütununa baxır, snapshot-a ehtiyac yoxdur. Təhlükəsizlik zəifləmir.
+-- ============================================================================
+alter table public.businesses enable row level security;
+
+drop policy if exists businesses_select_own  on public.businesses;
+drop policy if exists businesses_insert_own  on public.businesses;
+drop policy if exists businesses_update_own  on public.businesses;
+drop policy if exists businesses_delete_own  on public.businesses;
+drop policy if exists businesses_employee_read on public.businesses;
+
+create policy businesses_select_own on public.businesses
+  for select to authenticated
+  using (owner_id = auth.uid() or public.can_read_business(id));
+
+create policy businesses_insert_own on public.businesses
+  for insert to authenticated
+  with check (owner_id = auth.uid());
+
+create policy businesses_update_own on public.businesses
+  for update to authenticated
+  using (owner_id = auth.uid())
+  with check (owner_id = auth.uid());
+
+create policy businesses_delete_own on public.businesses
+  for delete to authenticated
+  using (owner_id = auth.uid());
+
+-- ============================================================================
+--  7.2 İŞÇİ ÖZ QEYDLƏRİNİ redaktə / silə bilsin
+--  ---------------------------------------------------------------------------
+--  Əvvəl `work_logs` və `leave_requests` üzərində işçi üçün UPDATE/DELETE
+--  siyasəti YOX idi:
+--    * işçi mövcud günü yeniləyəndə `.upsert()` → 42501 «icazəniz yoxdur»;
+--    * silmə isə 0 sətir silirdi, amma HTTP 204 qayıdırdı → «silindi» görünürdü.
+-- ============================================================================
+alter table public.work_logs      enable row level security;
+alter table public.leave_requests enable row level security;
+
+drop policy if exists worklogs_self_update on public.work_logs;
+drop policy if exists worklogs_self_delete on public.work_logs;
+
+create policy worklogs_self_update on public.work_logs
+  for update to authenticated
+  using (public.is_self_employee(employee_id))
+  with check (public.is_self_employee(employee_id));
+
+create policy worklogs_self_delete on public.work_logs
+  for delete to authenticated
+  using (public.is_self_employee(employee_id));
+
+drop policy if exists leaves_self_update on public.leave_requests;
+drop policy if exists leaves_self_delete on public.leave_requests;
+
+-- İşçi yalnız «pending» istəyini ləğv edə bilər — özünü TƏSDİQLƏYƏ BİLMƏZ.
+create policy leaves_self_update on public.leave_requests
+  for update to authenticated
+  using (public.is_self_employee(employee_id) and status = 'pending')
+  with check (public.is_self_employee(employee_id) and status in ('pending', 'rejected'));
+
+create policy leaves_self_delete on public.leave_requests
+  for delete to authenticated
+  using (public.is_self_employee(employee_id) and status = 'pending');
+
+-- ============================================================================
 --  8. YOXLAMA
 -- ============================================================================
 -- select public.rh_diagnostics();

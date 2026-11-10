@@ -148,6 +148,34 @@ Gözlənilən nəticə:
  "rls_disabled": [], "missing_grants": [], ...}
 ```
 
+### 3.1.2 Biznes yaratma düzəlişi — `supabase/fix_business.sql` (MÜTLƏQ)
+
+**Əgər «Biznes yarat» düyməsi belə xəta verirsə:**
+
+> Bu əməliyyat üçün icazəniz yoxdur.
+
+`supabase/schema.sql` və `supabase/fix_auth.sql`-dən **sonra** SQL Editor-da
+`supabase/fix_business.sql` faylının **hamısını** işə salın.
+
+**Səbəb (dəqiq izah):** tətbiq biznesi `.insert({...}).select().single()` ilə
+yaradırdı. `.select()` əlavə olunanda PostgREST `Prefer: return=representation`
+göndərir, PostgreSQL isə `INSERT ... RETURNING` üçün cədvəlin **SELECT**
+siyasətini də yoxlayır. `businesses_select_own` siyasəti yalnız
+`public.can_read_business(id)` idi və o, **STABLE** `current_business_ids()`
+funksiyasına güvənir — həmin funksiya sorğunun **əvvəlindəki** snapshot-u görür
+və təzə yaradılan sətri **görmür** → INSERT uğurlu olsa da 42501 qayıdırdı.
+
+| Düzəliş | Nəticə |
+|---------|--------|
+| `businesses_select_own` → `owner_id = auth.uid() OR can_read_business(id)` | `INSERT ... RETURNING` işləyir; biznes yaratmaq mümkündür |
+| `worklogs_self_update` / `worklogs_self_delete` | İşçi öz davamiyyət qeydini redaktə/silə bilir (əvvəl 42501) |
+| `leaves_self_update` / `leaves_self_delete` | İşçi «gözləyir» halındaki istəyini ləğv/silə bilir (özünü **təsdiqləyə bilməz**) |
+
+Kod tərəfi (`assets/js/lib/store.js`) də bu xətaya qarşı dayanıqlıdır: biznes
+`id`-si əvvəlcədən yaradılır, INSERT `return=minimal` ilə edilir və sətir
+**ayrıca sorğu ilə** geri oxunur — yəni baza yenilənməsə belə biznes yaratmaq
+işləyir.
+
 ### 3.2 Authentication  ★ "Çox sayda cəhd" xətasının HƏLLİ ★
 
 - **Authentication → Sign In / Providers → Email** aktiv olsun.

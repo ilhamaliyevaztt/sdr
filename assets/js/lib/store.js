@@ -426,28 +426,117 @@ export async function claimEmployeeByCode(code) {
 
 /* ----------------------------- BİZNES ----------------------------------- */
 
+/**
+ * Yeni biznes yaradır.
+ * ---------------------------------------------------------------------------
+ * ⚠️ ƏVVƏLKİ XƏTA («Bu əməliyyat üçün icazəniz yoxdur»):
+ *   Kod `.insert(...).select().single()` işlədirdi. Bu halda PostgREST
+ *   `Prefer: return=representation` göndərir və PostgreSQL INSERT ... RETURNING
+ *   üçün `businesses_select_own` SELECT siyasətini DƏ yoxlayır.
+ *   Həmin siyasət `public.can_read_business(id)` → `current_business_ids()`
+ *   funksiyasına güvənir. `current_business_ids()` **STABLE**-dır, yəni sorğunun
+ *   əvvəlindəki snapshot-u görür — təzə yaradılan sətir orada YOXDUR.
+ *   Nəticə: INSERT-in özü qaydasındadır, amma RETURNING mərhələsi RLS-ə düşür
+ *   və istifadəçi 42501 «icazəniz yoxdur» görür.
+ *
+ *   HƏLL (baza dəyişikliyi tələb etmir):
+ *     1. `id` əvvəlcədən yaradılır.
+ *     2. INSERT `return=minimal` ilə edilir → RETURNING yoxdur → RLS keçilir.
+ *     3. Sətir AYRICA sorğu ilə geri oxunur (yeni snapshot → görünür).
+ *
+ *   `supabase/fix_business.sql` faylı SELECT siyasətini də düzəldir
+ *   (`owner_id = auth.uid()`), yəni baza yenilənəndən sonra RETURNING də işləyir.
+ */
 export async function createBusiness(payload) {
   const sb = getClient();
   const { data: auth } = await sb.auth.getUser();
   const uid = auth?.user?.id;
   if (!uid) throw new Error('Sessiya tapılmadı.');
 
-  const { data, error } = await sb
-    .from('businesses')
-    .insert({
-      owner_id: uid,
-      name: String(payload.name || '').trim(),
-      legal_name: clean(payload.legal_name),
-      phone: clean(payload.phone),
-      email: clean(payload.email),
-      address: clean(payload.address),
-      currency: payload.currency || 'AZN',
-      pay_day: clampPayDay(payload.pay_day)
-    })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+  const name = String(payload.name || '').trim();
+  if (name.length < 2) throw new Error('Biznes adını daxil edin.');
+
+  const row = {
+    owner_id: uid,
+    name,
+    legal_name: clean(payload.legal_name),
+    phone: clean(payload.phone),
+    email: clean(payload.email),
+    address: clean(payload.address),
+    currency: payload.currency || 'AZN',
+    pay_day: clampPayDay(payload.pay_day)
+  };
+
+  let lastError = null;
+
+  // `join_code` unikal indeksi toqquşa bilər (ehtimal çox azdır) → bir neçə cəhd.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const id = newUuid();
+
+    // 1) RETURNING-siz INSERT — RLS-in SELECT mərhələsi işə düşmür.
+    const { error } = await sb.from('businesses').insert({ id, ...row });
+
+    if (error) {
+      lastError = error;
+      // Yalnız unikal açar toqquşmasında təkrar cəhd et.
+      if (/23505|duplicate key/i.test(String(error.code || error.message || ''))) continue;
+      throw error;
+    }
+
+    // 2) Sətri ayrıca sorğu ilə geri oxu.
+    const created = await readBackBusiness(sb, id);
+    if (created) return created;
+
+    // 3) Nadir hal: sətir hələ görünmür → qısa fasilə ilə yenidən yoxla.
+    for (let i = 0; i < 3; i++) {
+      await sleep(120);
+      const retry = await readBackBusiness(sb, id);
+      if (retry) return retry;
+    }
+
+    // INSERT uğurlu oldu, amma oxunmur → bazadakı SELECT siyasəti bağlıdır.
+    // ⚠️ `code` TƏYİN EDİLMİR: əks halda friendlyError onu ümumi
+    //    «icazəniz yoxdur» mətninə çevirir və əsl səbəb itir.
+    throw new Error(
+      'Biznes yaradıldı, amma oxuna bilmədi. Supabase → SQL Editor → ' +
+        'supabase/fix_business.sql faylını işə salın.'
+    );
+  }
+
+  throw lastError || new Error('Biznes yaradıla bilmədi. Yenidən cəhd edin.');
+}
+
+/** `businesses` sətrini id üzrə oxuyur (yoxdursa null). */
+async function readBackBusiness(sb, id) {
+  const { data, error } = await sb.from('businesses').select('*').eq('id', id).maybeSingle();
+  if (error) {
+    // PGRST116 = 0 sətir; digər xətaları yuxarı ötürmürük — nəticə null sayılır.
+    if (/PGRST116/.test(String(error.code || error.message || ''))) return null;
+    if (isMissingColumn(error)) return null;
+    throw error;
+  }
+  return data || null;
+}
+
+/** UUID v4 — `crypto.randomUUID` olmayan (http) mühitlər üçün ehtiyat. */
+function newUuid() {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+    return window.crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  if (window.crypto && window.crypto.getRandomValues) {
+    window.crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function updateBusiness(id, payload) {
@@ -708,30 +797,116 @@ export async function listWorkLogs({ businessId = null, employeeId = null, from 
   return data || [];
 }
 
+/**
+ * Davamiyyət qeydini yarat və ya yenilə.
+ * ---------------------------------------------------------------------------
+ * ⚠️ ƏVVƏLKİ XƏTALAR:
+ *   a) `.upsert({...}, {onConflict}).select().single()` — `return=representation`
+ *      göndərir və RETURNING üçün əlavə SELECT yoxlaması tələb edir.
+ *   b) `work_logs` cədvəlində işçi üçün UPDATE siyasəti yox idi → mövcud günü
+ *      yeniləyəndə 42501 «icazəniz yoxdur» (USING expression) alınırdı.
+ *   c) Təhlükəli səssiz hal: RLS UPDATE-i bloklayanda PostgREST **xəta
+ *      qaytarmır** (0 sətir yenilənir, HTTP 204). «Əvvəlcə update» məntiqi ilə
+ *      bu, «saxlanıldı» görünüb heç nə yazmamağa səbəb olurdu.
+ *
+ *   HƏLL: əvvəlcə sətri OXUYURUQ, sonra update/insert edirik və nəticəni
+ *   YENİDƏN OXUYUB dəyərləri müqayisə edirik. Uyğunsuzluq varsa — aydın xəta.
+ */
 export async function upsertWorkLog(payload) {
   const sb = getClient();
+  const employeeId = payload.employee_id;
+  const workDate = payload.work_date;
+  if (!employeeId || !workDate) throw new Error('İşçi və tarix mütləqdir.');
+
+  const row = {
+    hours: Number(payload.hours) || 0,
+    overtime: Number(payload.overtime) || 0,
+    note: clean(payload.note)
+  };
+
+  // 1) Sətir artıq var?
+  const existing = await readBackWorkLog(sb, employeeId, workDate);
+
+  if (existing) {
+    // 2a) Mövcud sətri yenilə (RETURNING-siz → `.select()` YOXDUR).
+    const { error } = await sb
+      .from('work_logs')
+      .update(row)
+      .eq('employee_id', employeeId)
+      .eq('work_date', workDate);
+    if (error) throw error;
+
+    const updated = await readBackWorkLog(sb, employeeId, workDate);
+    if (updated && sameWorkLog(updated, row)) return updated;
+
+    // Yazılmadı → UPDATE siyasəti icazə vermir.
+    throw new Error(
+      'Qeyd yenilənmədi — icazə yoxdur. Sahibkarınızdan icazə istəyin (baza: supabase/fix_business.sql).'
+    );
+  }
+
+  // 2b) Yeni sətir yarat.
+  const ins = await sb
+    .from('work_logs')
+    .insert({ employee_id: employeeId, work_date: workDate, ...row });
+
+  if (ins.error) {
+    // Paralel yazı toqquşması (23505) → update yoluna keç.
+    if (/23505|duplicate key/i.test(String(ins.error.code || ins.error.message || ''))) {
+      const { error } = await sb
+        .from('work_logs')
+        .update(row)
+        .eq('employee_id', employeeId)
+        .eq('work_date', workDate);
+      if (error) throw error;
+      const again = await readBackWorkLog(sb, employeeId, workDate);
+      if (again && sameWorkLog(again, row)) return again;
+      throw new Error('Qeyd yenilənmədi — icazə yoxdur.');
+    }
+    throw ins.error;
+  }
+
+  const created = await readBackWorkLog(sb, employeeId, workDate);
+  if (created) return created;
+
+  throw new Error('Davamiyyət qeydi yazıldı, amma oxuna bilmədi. Səhifəni yeniləyin.');
+}
+
+/** Oxunan sətir gözlənilən dəyərlərlə üst-üstə düşürmü? */
+function sameWorkLog(actual, expected) {
+  const near = (a, b) => Math.abs(Number(a || 0) - Number(b || 0)) < 0.001;
+  const norm = (v) => String(v === null || v === undefined ? '' : v).trim();
+  return (
+    near(actual.hours, expected.hours) &&
+    near(actual.overtime, expected.overtime) &&
+    norm(actual.note) === norm(expected.note)
+  );
+}
+
+async function readBackWorkLog(sb, employeeId, workDate) {
   const { data, error } = await sb
     .from('work_logs')
-    .upsert(
-      {
-        employee_id: payload.employee_id,
-        work_date: payload.work_date,
-        hours: Number(payload.hours) || 0,
-        overtime: Number(payload.overtime) || 0,
-        note: clean(payload.note)
-      },
-      { onConflict: 'employee_id,work_date' }
-    )
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+    .select('*')
+    .eq('employee_id', employeeId)
+    .eq('work_date', workDate)
+    .maybeSingle();
+  if (error) {
+    if (/PGRST116/.test(String(error.code || error.message || ''))) return null;
+    throw error;
+  }
+  return data || null;
 }
 
 export async function deleteWorkLog(id) {
   const sb = getClient();
-  const { error } = await sb.from('work_logs').delete().eq('id', id);
+  // `.select('id')` → neçə sətir silindiyini göstərir.
+  // RLS silməyə icazə vermirsə, əvvəl 204 qayıdırdı və istifadəçi «silindi»
+  // mesajı görsə də sətir qalırdı. İndi bu hal aydın xəta kimi göstərilir.
+  const { data, error } = await sb.from('work_logs').delete().eq('id', id).select('id');
   if (error) throw error;
+  if (Array.isArray(data) && data.length === 0) {
+    throw new Error('Qeyd silinmədi — icazə yoxdur. Sahibkarınızla əlaqə saxlayın.');
+  }
 }
 
 /* ----------------------------- MƏZUNİYYƏT ------------------------------- */
@@ -780,10 +955,24 @@ export async function decideLeave(id, status) {
   return data;
 }
 
+/**
+ * Məzuniyyət istəyini silir.
+ * ---------------------------------------------------------------------------
+ * ⚠️ ƏVVƏLKİ XƏTA: işçinin `leave_requests` üzərində DELETE siyasəti yox idi.
+ *    PostgREST RLS-ə görə 0 sətir silirdi, amma cavab **204 No Content** olurdu
+ *    → tətbiq «İstək silindi» mesajı göstərirdi, sətir isə qalırdı.
+ *    İndi silinən sətirlər `select('id')` ilə yoxlanılır.
+ *    Baza tərəfi `supabase/fix_business.sql` ilə düzəldilir.
+ */
 export async function deleteLeave(id) {
   const sb = getClient();
-  const { error } = await sb.from('leave_requests').delete().eq('id', id);
+  const { data, error } = await sb.from('leave_requests').delete().eq('id', id).select('id');
   if (error) throw error;
+  if (Array.isArray(data) && data.length === 0) {
+    throw new Error(
+      'İstək silinmədi — yalnız «gözləyir» halındaki istəkləri silə bilərsiniz.'
+    );
+  }
 }
 
 /* ------------------------------- QEYDLƏR -------------------------------- */

@@ -766,9 +766,16 @@ drop policy if exists businesses_update_own on public.businesses;
 drop policy if exists businesses_delete_own on public.businesses;
 drop policy if exists businesses_employee_read on public.businesses;
 
+-- OXU: öz biznesi VƏ YA üzvü/işçisi olduğu biznes.
+-- ⚠️ `owner_id = auth.uid()` MÜTLƏQ olmalıdır:
+--    `can_read_business()` → `current_business_ids()` STABLE-dir və sorğunun
+--    əvvəlindəki snapshot-u görür. Yalnız bu funksiyaya güvənilsə,
+--    `INSERT ... RETURNING` (yəni `.insert().select()`) yeni sətri snapshot-da
+--    tapa bilmir və istifadəçi 42501 «icazəniz yoxdur» alır — biznes yaratmaq
+--    mümkün olmur. Sətrin ÖZ sütununa baxan şərt bu problemi həll edir.
 create policy businesses_select_own on public.businesses
   for select to authenticated
-  using (public.can_read_business(id));
+  using (owner_id = auth.uid() or public.can_read_business(id));
 
 create policy businesses_insert_own on public.businesses
   for insert to authenticated

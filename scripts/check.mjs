@@ -23,6 +23,8 @@ const REQUIRED = [
   'render.yaml',
   'README.md',
   'supabase/schema.sql',
+  'supabase/fix_auth.sql',
+  'supabase/fix_business.sql',
   'assets/css/styles.css',
   'assets/img/logo-mark.png',
   'assets/img/logo-512.png',
