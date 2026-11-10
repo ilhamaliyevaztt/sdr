@@ -706,7 +706,12 @@ export async function refreshData() {
     state.leaves = leaves || [];
     state.notes = [];
     state.activity = [];
-    state.summary = summarize(state.balances, balances ? balances.map((b) => ({ ...b })) : []);
+
+    // İşçi üçün xülasə yalnız öz kartı üzərindən hesablanır
+    const ownCards = space.employee
+      ? [{ id: space.employee.id, is_active: true, monthly_salary: space.employee.monthly_salary }]
+      : [];
+    state.summary = summarize(state.balances, ownCards);
   }
 
   updateBadges();

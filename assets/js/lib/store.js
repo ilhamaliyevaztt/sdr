@@ -211,16 +211,28 @@ export async function loadContext(session) {
   }
 
   // 3. Sahibi olduğu bizneslər (BİRDƏN ÇOX)
+  // Köhnə sxemdə `is_archived` sütunu yoxdursa — filtrsiz təkrar sorğu.
   let ownedBusinesses = [];
   {
-    const { data, error } = await sb
+    const withArchive = await sb
       .from('businesses')
       .select('*')
       .eq('owner_id', user.id)
       .eq('is_archived', false)
       .order('created_at', { ascending: true });
-    if (error) throw error;
-    ownedBusinesses = data || [];
+
+    if (withArchive.error && isMissingColumn(withArchive.error)) {
+      const plain = await sb
+        .from('businesses')
+        .select('*')
+        .eq('owner_id', user.id)
+        .order('created_at', { ascending: true });
+      if (plain.error) throw plain.error;
+      ownedBusinesses = plain.data || [];
+    } else {
+      if (withArchive.error) throw withArchive.error;
+      ownedBusinesses = withArchive.data || [];
+    }
   }
 
   // 4. İşçi olduğu bizneslər
@@ -686,7 +698,22 @@ export async function logActivity(businessId, action, detail = null, actorName =
 
 /* ----------------------------- KÖMƏKÇİLƏR ------------------------------- */
 
-function clean(value) {
+/** Sxemdə sütun/cədvəl yoxdur xətası? (köhnə baza ilə uyğunluq üçün) */
+export function isMissingColumn(error) {
+  const code = String(error?.code || '');
+  const msg = String(error?.message || '');
+  return (
+    code === '42703' || // undefined_column
+    code === '42P01' || // undefined_table
+    code === 'PGRST204' || // kolon tapılmadı (PostgREST)
+    code === 'PGRST205' || // cədvəl sxem keşində yoxdur
+    /column .* does not exist/i.test(msg) ||
+    /Could not find the '.*' column/i.test(msg) ||
+    /relation .* does not exist/i.test(msg)
+  );
+}
+
+export function clean(value) {
   const s = value === null || value === undefined ? '' : String(value).trim();
   return s === '' ? null : s;
 }
