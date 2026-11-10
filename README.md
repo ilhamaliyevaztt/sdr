@@ -120,11 +120,54 @@ yaşıl `#4ADB96` → `#22A06B`, tünd göy `#1F313F`.
 3. Skript **idempotentdir** — köhnə baza üzərində də təkrar işə salmaq təhlükəsizdir
    (köhnə məhdudiyyətlər avtomatik silinir).
 
-### 3.2 Authentication
+### 3.1.1 Giriş/qeydiyyat düzəlişi — `supabase/fix_auth.sql` (MÜTLƏQ)
 
-- **Authentication → Providers → Email** aktiv olsun.
-- Tövsiyə: **Confirm email** söndürülsün ki, işçilər dərhal daxil ola bilsin.
-  (İşçi qoşulması artıq e-poçt təsdiqindən **asılı deyil** — kodla işləyir.)
+`supabase/schema.sql`-dən **sonra** eyni qaydada `supabase/fix_auth.sql` faylını
+da işə salın (SQL Editor → New query → hamısını kopyala → Run).
+
+Bu fayl nə edir:
+
+| Funksiya | Nə üçün |
+|----------|---------|
+| `ensure_my_profile(text)` | Hər girişdən sonra profili **zəmanətlə** yaradır. Trigger işləməsə belə qeydiyyat pozulmur. |
+| `regenerate_employee_code(uuid)` | İşçi kodunu server tərəfdə 20 cəhdlə yeniləyir — `23505 duplicate key` xətası **mümkün deyil**. |
+| `claim_employee_by_code(text)` | Yenidən yaradılır, aydın xəta kodları ilə (`INVALID_CODE`, `CODE_ALREADY_USED`). |
+| `rotate_join_code(uuid)` | Biznes kodu toqquşmasız yenilənir. |
+| `rh_diagnostics()` | Sxemin **real** vəziyyətini yoxlayır (çatışmayan cədvəl/funksiya/icazə). |
+
+Diaqnostika:
+
+```sql
+select public.rh_diagnostics();
+```
+
+Gözlənilən nəticə:
+
+```json
+{"ok": true, "missing_tables": [], "missing_functions": [],
+ "rls_disabled": [], "missing_grants": [], ...}
+```
+
+### 3.2 Authentication  ★ "Çox sayda cəhd" xətasının HƏLLİ ★
+
+- **Authentication → Sign In / Providers → Email** aktiv olsun.
+- **Confirm email** — **MÜTLƏQ SÖNDÜRÜN** (OFF).
+
+> **Niyə vacibdir?**
+> `Confirm email` AÇIQ olduqda hər qeydiyyat e-poçt göndərməyə çalışır.
+> Supabase-in daxili (pulsuz) SMTP-si saatda yalnız bir neçə məktub göndərir.
+> Limit bitən kimi server `429 over_email_send_rate_limit — email rate limit
+> exceeded` qaytarır və istifadəçi **heç nə etməsə belə**
+> «Çox sayda cəhd. Bir az sonra yenidən yoxlayın.» mesajını görür.
+>
+> `Confirm email` söndürüldükdə qeydiyyat **dərhal** sessiya açır — e-poçt
+> göndərilmir, limitə düşmür. Yüzlərlə/minlərlə istifadəçi problemsiz qeydiyyatdan
+> keçə bilir. (İşçi qoşulması e-poçtdan **asılı deyil** — 8 simvollu kodla işləyir.)
+
+Əgər e-poçt təsdiqi sizin üçün mütləq lazımdırsa (məsələ `Confirm email` = ON),
+o zaman **custom SMTP** qurmalısınız:
+**Project Settings → Authentication → SMTP Settings** → Resend / SendGrid /
+Mailgun / Amazon SES açarını daxil edin. Əks halda limit xətası qaçılmazdır.
 
 ### 3.3 Açarlar
 

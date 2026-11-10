@@ -3,7 +3,15 @@
    ========================================================================== */
 
 import { $, $$, icon, toast, showError, setLoading, isEmail } from './lib/dom.js';
-import { signIn, signUp, resetPassword, friendlyError } from './lib/store.js';
+import {
+  signIn,
+  signUp,
+  resetPassword,
+  resendConfirmation,
+  friendlyError,
+  isRateLimitError,
+  isAlreadyRegisteredError
+} from './lib/store.js';
 
 const TITLES = {
   login: 'Xoş gəlmisiniz',
@@ -12,6 +20,9 @@ const TITLES = {
 };
 
 let onAuthenticated = null;
+
+/** Son qeydiyyat cəhdində istifadə olunan e-poçt (təsdiqi yenidən göndərmək üçün). */
+let pendingEmail = '';
 
 export function initAuth(handler) {
   onAuthenticated = handler;
@@ -57,6 +68,34 @@ export function initAuth(handler) {
       setTimeout(() => resetEmail?.focus(), 60);
     });
   }
+
+  const resend = $('#resend-confirm');
+  if (resend) resend.addEventListener('click', handleResendConfirmation);
+}
+
+/* -------------------- TƏSDİQ MƏKTUBUNU YENİDƏN GÖNDƏR ------------------ */
+
+async function handleResendConfirmation() {
+  const btn = $('#resend-confirm');
+  const loginEmail = $('#login-email');
+  const email = (pendingEmail || (loginEmail && loginEmail.value) || '').trim();
+
+  if (!isEmail(email)) {
+    toast('Təsdiq linkini hansı e-poçta göndərək? E-poçt ünvanını yazın.', 'error', 5000);
+    if (loginEmail) loginEmail.focus();
+    return;
+  }
+
+  setLoading(btn, true);
+  try {
+    await resendConfirmation(email);
+    toast('Təsdiq məktubu ' + email + ' ünvanına yenidən göndərildi.', 'ok', 7000);
+  } catch (err) {
+    console.error('[auth] resend failed', err);
+    toast(friendlyError(err), 'error', 9000);
+  } finally {
+    setLoading(btn, false);
+  }
 }
 
 export function switchTab(tab) {
@@ -74,7 +113,7 @@ export function switchTab(tab) {
   $('#register-form').hidden = name !== 'register';
   $('#reset-form').hidden = name !== 'reset';
 
-  $$('#login-error, #register-error, #reset-error, #reset-success, #register-success').forEach((el) => {
+  $$('#login-error, #login-success, #register-error, #reset-error, #reset-success, #register-success').forEach((el) => {
     el.hidden = true;
     el.textContent = '';
   });
@@ -112,11 +151,13 @@ async function handleLogin(event) {
   const form = event.currentTarget;
   const submit = $('#login-submit');
   const errorBox = $('#login-error');
+  const successBox = $('#login-success');
 
   const email = $('#login-email').value.trim();
   const password = $('#login-password').value;
 
   showError(errorBox, '');
+  showError(successBox, '');
 
   if (!email) return showError(errorBox, 'E-poçt ünvanını daxil edin.');
   if (!isEmail(email)) return showError(errorBox, 'E-poçt ünvanı düzgün formatda deyil.');
@@ -127,12 +168,25 @@ async function handleLogin(event) {
     const session = await signIn(email, password);
     if (!session) throw new Error('Sessiya yaradılmadı.');
 
+    pendingEmail = '';
     form.reset();
     toast('Xoş gəlmisiniz!', 'ok');
     if (typeof onAuthenticated === 'function') await onAuthenticated(session);
   } catch (err) {
     console.error('[auth] login failed', err);
-    showError(errorBox, friendlyError(err));
+
+    // E-poçt təsdiqi gözlənilir — istifadəçiyə dəqiq yol göstər
+    if (/email not confirmed|not confirmed/i.test(String(err?.message || ''))) {
+      pendingEmail = email;
+      showError(
+        successBox,
+        'E-poçt ünvanı hələ təsdiqlənməyib. Poçtunuzu (və Spam qovluğunu) yoxlayın, ' +
+          'ya da aşağıdaki «Yenidən göndər» düyməsini basın.'
+      );
+      toast('Təsdiq linkini yenidən göndərə bilərsiniz.', 'info', 7000);
+    } else {
+      showError(errorBox, friendlyError(err));
+    }
   } finally {
     setLoading(submit, false);
   }
@@ -166,26 +220,52 @@ async function handleRegister(event) {
   try {
     const result = await signUp(email, password, fullName);
 
+    // Hesab yarandı və sessiya açıldı — birbaşa içəri
     if (result?.session) {
       $('#register-form').reset();
       updateMeter('');
       toast('Hesab yaradıldı!', 'ok');
       if (typeof onAuthenticated === 'function') await onAuthenticated(result.session);
-    } else {
-      $('#register-form').reset();
-      updateMeter('');
+      return;
+    }
+
+    // Hesab yarandı, amma e-poçt təsdiqi gözlənilir
+    $('#register-form').reset();
+    updateMeter('');
+    pendingEmail = email;
+    switchTab('login');
+    const loginEmailOk = $('#login-email');
+    if (loginEmailOk) loginEmailOk.value = email;
+    // Mesaj GÖRÜNƏN (login) tabın sahasına yazılır — register formu gizlədilib
+    showError(
+      $('#login-success'),
+      'Hesab yaradıldı. ' + email + ' ünvanına təsdiq linki göndərdik — linki açıb daxil olun.'
+    );
+    toast('Təsdiq linki göndərildi. Poçtunuzu yoxlayın.', 'info', 7000);
+  } catch (err) {
+    console.error('[auth] register failed', err);
+    const message = friendlyError(err);
+
+    // E-poçt limiti / artıq qeydiyyat — istifadəçiyə əməli yol göstər
+    if (isRateLimitError(err) || isAlreadyRegisteredError(err)) {
+      pendingEmail = email;
       switchTab('login');
       const loginEmail = $('#login-email');
       if (loginEmail) loginEmail.value = email;
+      const loginPassword = $('#login-password');
+      if (loginPassword) loginPassword.focus();
+      // Mesaj GÖRÜNƏN (login) tabın sahasına yazılır
       showError(
-        successBox,
-        'Qeydiyyat tamamlandı. ' + email + ' ünvanına təsdiq linki göndərdik. Linki açıb daxil olun.'
+        $('#login-success'),
+        isAlreadyRegisteredError(err)
+          ? 'Bu e-poçt ilə hesab artıq mövcuddur — şifrənizi yazıb «Daxil ol» düyməsini basın.'
+          : 'E-poçt göndərmə limiti dolub, amma hesabınız yaranmış ola bilər. ' +
+            'Şifrənizi yazıb «Daxil ol» cəhd edin. Alınmasa 1 saat sonra yenidən yoxlayın.'
       );
-      toast('Təsdiq linki göndərildi. Poçtunuzu yoxlayın.', 'info', 7000);
+      toast('Hesab ola bilər — birbaşa daxil olmağı cəhd edin.', 'info', 8000);
+    } else {
+      showError(errorBox, message);
     }
-  } catch (err) {
-    console.error('[auth] register failed', err);
-    showError(errorBox, friendlyError(err));
   } finally {
     setLoading(submit, false);
   }

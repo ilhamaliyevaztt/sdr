@@ -73,26 +73,86 @@ const ERROR_MAP = {
   '42883': 'Baza funksiyası tapılmadı. schema.sql faylını yenidən işə salın.',
   INVALID_CODE: 'Kod yanlışdır. Kodu sahibkarınızdan yenidən yoxlayın.',
   CODE_ALREADY_USED: 'Bu kod artıq başqa hesaba bağlanıb.',
+  CODE_GENERATION_FAILED: 'Kod yaradıla bilmədi. Yenidən cəhd edin.',
+  EMPLOYEE_NOT_FOUND: 'İşçi tapılmadı. Səhifəni yeniləyin.',
+  FORBIDDEN: 'Bu əməliyyat üçün icazəniz yoxdur.',
   NOT_AUTHENTICATED: 'Əvvəlcə hesabınıza daxil olun.'
 };
 
+/** E-poçt göndərmə limiti (Supabase daxili SMTP) — ən çox rast gəlinən xəta. */
+export function isRateLimitError(error) {
+  const code = String(error?.code || error?.error_code || error?.status || '');
+  const msg = String(error?.message || error?.msg || '');
+  return (
+    /over_email_send_rate_limit|over_request_rate_limit|email_rate_limit/i.test(code) ||
+    /email rate limit exceeded|rate limit|too many requests/i.test(msg) ||
+    Number(error?.status) === 429
+  );
+}
+
+/** E-poçt ünvanı Supabase tərəfindən rədd edildi (məs. example.com). */
+export function isInvalidEmailDomainError(error) {
+  const code = String(error?.code || error?.error_code || '');
+  const msg = String(error?.message || error?.msg || '');
+  return /email_address_invalid|email_address_not_authorized/i.test(code) || /is invalid|not authorized/i.test(msg);
+}
+
+/** Hesab artıq mövcuddur (Supabase e-poçt təsdiqi açıq olduqda belə qaytarır). */
+export function isAlreadyRegisteredError(error) {
+  const msg = String(error?.message || error?.msg || '');
+  return /already registered|already been registered|user already exists/i.test(msg);
+}
+
 export function friendlyError(error) {
   if (!error) return 'Naməlum xəta baş verdi.';
-  const code = error.code || error.status || '';
-  const rawMsg = String(error.message || '');
+
+  const code = String(error.code || error.status || '');
+  const errorCode = String(error.error_code || '');
+  const rawMsg = String(error.message || error.msg || '');
+
   if (ERROR_MAP[code]) return ERROR_MAP[code];
+  if (ERROR_MAP[errorCode]) return ERROR_MAP[errorCode];
   if (ERROR_MAP[rawMsg]) return ERROR_MAP[rawMsg];
 
+  // ── E-poçt göndərmə limiti ─────────────────────────────────────────────
+  if (isRateLimitError(error)) {
+    return (
+      'E-poçt göndərmə limiti dolub. Hesabınız YARANMIŞ OLA BİLƏR — ' +
+      'əvvəlcə «Daxil ol» cəhd edin, alınmasa 1 saat sonra yenidən yoxlayın. ' +
+      'Daimi həll: Supabase → Authentication → Email → «Confirm email» söndürülsün.'
+    );
+  }
+
+  if (isInvalidEmailDomainError(error)) {
+    return 'Bu e-poçt ünvanı qəbul edilmir. Real poçt ünvanı yazın (məs. ad@gmail.com).';
+  }
+  if (isAlreadyRegisteredError(error)) {
+    return 'Bu e-poçt ilə hesab artıq mövcuddur. «Daxil ol» bölməsindən girin.';
+  }
+
   if (/invalid login credentials/i.test(rawMsg)) return 'E-poçt və ya şifrə yanlışdır.';
-  if (/email not confirmed/i.test(rawMsg)) return 'E-poçt ünvanı təsdiqlənməyib. Poçtunuzu yoxlayın.';
-  if (/user already registered|already been registered/i.test(rawMsg)) return 'Bu e-poçt ilə hesab artıq mövcuddur.';
-  if (/password should be at least/i.test(rawMsg)) return 'Şifrə ən azı 8 simvol olmalıdır.';
-  if (/rate limit|too many requests/i.test(rawMsg)) return 'Çox sayda cəhd. Bir az sonra yenidən yoxlayın.';
-  if (/Failed to fetch|NetworkError|Load failed/i.test(rawMsg)) return 'Şəbəkə xətası. İnternet bağlantısını yoxlayın.';
+  if (/email not confirmed/i.test(rawMsg)) {
+    return 'E-poçt ünvanı hələ təsdiqlənməyib. Poçtunuzu (və Spam qovluğunu) yoxlayın.';
+  }
+  if (/user already registered|already been registered/i.test(rawMsg)) {
+    return 'Bu e-poçt ilə hesab artıq mövcuddur. «Daxil ol» bölməsindən girin.';
+  }
+  if (/password should be at least|weak password/i.test(rawMsg)) {
+    return 'Şifrə ən azı 8 simvol olmalıdır.';
+  }
+  if (/new password should be different|same_password/i.test(rawMsg)) {
+    return 'Yeni şifrə köhnə şifrədən fərqli olmalıdır.';
+  }
+  if (/signups not allowed|signup is disabled/i.test(rawMsg)) {
+    return 'Qeydiyyat müvəqqəti bağlıdır. Zəhmət olmasa sonra yenidən cəhd edin.';
+  }
+  if (/Failed to fetch|NetworkError|Load failed/i.test(rawMsg)) {
+    return 'Şəbəkə xətası. İnternet bağlantısını yoxlayın.';
+  }
   if (/duplicate key value/i.test(rawMsg)) return 'Bu məlumat artıq mövcuddur.';
   if (/row-level security/i.test(rawMsg)) return 'Bu əməliyyat üçün icazəniz yoxdur.';
   if (/does not exist/i.test(rawMsg) && /relation|view|function/i.test(rawMsg)) {
-    return 'Baza strukturu hazır deyil. Supabase-də schema.sql faylını işə salın.';
+    return 'Baza strukturu hazır deyil. Supabase → SQL Editor → schema.sql və fix_auth.sql işə salın.';
   }
   if (/JWT|token/i.test(rawMsg)) return 'Sessiya vaxtı bitdi. Yenidən daxil olun.';
   return rawMsg || 'Xəta baş verdi.';
@@ -126,22 +186,108 @@ export async function signIn(email, password) {
     password
   });
   if (error) throw error;
+  if (!data?.session) throw new Error('Sessiya yaradılmadı. Yenidən cəhd edin.');
   return data.session;
 }
 
+/**
+ * Qeydiyyat.
+ * ---------------------------------------------------------------------------
+ * ⚠️ ƏSAS PROBLEM (həll olunur):
+ *   Supabase-də "Confirm email" AÇIQ olduqda hər qeydiyyat e-poçt göndərməyə
+ *   çalışır. Supabase-in daxili pulsuz SMTP-si saatda yalnız bir neçə məktub
+ *   göndərir → 429 "email rate limit exceeded" → istifadəçi heç nə etmədən
+ *   «Çox sayda cəhd. Bir az sonra yenidən yoxlayın.» xətası görür.
+ *
+ *   Buna görə:
+ *     1. Hesab yaranıbsa (session varsa) — dərhal içəri buraxırıq.
+ *     2. E-poçt limiti xətası olsa da, hesab YARANMIŞ ola bilər → avtomatik
+ *        olaraq şifrə ilə girişi yoxlayırıq.
+ *     3. Heç biri alınmasa — xətanı yuxarı ötürürük (friendlyError izah edir).
+ */
 export async function signUp(email, password, fullName) {
   const sb = getClient();
   const cleanEmail = String(email).trim().toLowerCase();
-  const { data, error } = await sb.auth.signUp({
-    email: cleanEmail,
-    password,
-    options: {
-      data: { full_name: String(fullName || '').trim() },
-      emailRedirectTo: window.location.origin + window.location.pathname
-    }
+  const meta = { full_name: String(fullName || '').trim() };
+
+  let data = null;
+  let error = null;
+  try {
+    const res = await sb.auth.signUp({
+      email: cleanEmail,
+      password,
+      options: {
+        data: meta,
+        emailRedirectTo: window.location.origin + window.location.pathname
+      }
+    });
+    data = res.data;
+    error = res.error;
+  } catch (err) {
+    error = err;
+  }
+
+  if (data?.session) {
+    return { session: data.session, user: data.user, needsConfirmation: false };
+  }
+
+  // Xəta olsa da (xüsusən e-poçt limiti) hesab yaranmış ola bilər → girişi yoxla
+  if (error) {
+    const retry = await trySilentSignIn(sb, cleanEmail, password);
+    if (retry) return { session: retry, user: retry.user, needsConfirmation: false };
+    throw error;
+  }
+
+  // Xəta yoxdur, amma sessiya da yoxdur → e-poçt təsdiqi gözlənilir
+  if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+    // Supabase e-poçt təsdiqi açıq olduqda MÖVCUD hesab üçün boş identities qaytarır.
+    // Əvvəlcə şifrə ilə girişi yoxlayırıq — uğurlu olsa dərhal içəri buraxırıq.
+    const retry = await trySilentSignIn(sb, cleanEmail, password);
+    if (retry) return { session: retry, user: retry.user, needsConfirmation: false };
+    // Əmin deyilik → xəta ATMIRIQ; istifadəçini girişə yönləndiririk
+    return { session: null, user: data.user || null, needsConfirmation: true, maybeExisting: true };
+  }
+
+  return { session: null, user: data?.user || null, needsConfirmation: true };
+}
+
+/** Səssiz giriş cəhdi — uğursuz olarsa null qaytarır (xəta atmır). */
+async function trySilentSignIn(sb, email, password) {
+  try {
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error || !data?.session) return null;
+    return data.session;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Təsdiq məktubunu yenidən göndərir. */
+export async function resendConfirmation(email) {
+  const sb = getClient();
+  const { error } = await sb.auth.resend({
+    type: 'signup',
+    email: String(email).trim().toLowerCase(),
+    options: { emailRedirectTo: window.location.origin + window.location.pathname }
   });
   if (error) throw error;
-  return data;
+}
+
+/**
+ * Girişdən sonra profili zəmanətlə yaradır (fix_auth.sql → ensure_my_profile).
+ * Funksiya yoxdursa və ya xəta versə — səssiz keçir, girişi bloklamır.
+ */
+export async function ensureProfile(fullName = null) {
+  try {
+    const sb = getClient();
+    const { data, error } = await sb.rpc('ensure_my_profile', {
+      p_full_name: fullName === null || fullName === undefined ? null : String(fullName)
+    });
+    if (error) return null;
+    return data || null;
+  } catch (_) {
+    return null;
+  }
 }
 
 export async function signOut() {
@@ -193,13 +339,16 @@ export async function loadContext(session) {
   const user = session?.user;
   if (!user) throw new Error('Sessiya tapılmadı.');
 
-  // 1. Profil
+  // 1. Profil — MÜTLƏQ mövcud olmalıdır (fix_auth.sql → ensure_my_profile)
   let profile = null;
   {
-    const { data, error } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
-    if (error && error.code && !/PGRST116/.test(error.code)) {
-      if (!/relation|does not exist/i.test(error.message || '')) throw error;
-    }
+    const { data } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
+    profile = data || null;
+  }
+  if (!profile) {
+    // Trigger işləməyibsə — funksiya ilə yaradılır, sonra yenidən oxunur
+    await ensureProfile(user.user_metadata?.full_name || null);
+    const { data } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
     profile = data || null;
   }
 
@@ -410,18 +559,42 @@ export async function setEmployeeActive(id, isActive) {
   if (error) throw error;
 }
 
-/** İşçi üçün yeni giriş kodu yaradılır. */
+/** İşçi üçün yeni giriş kodu yaradılır (server tərəfdə, toqquşma riski yoxdur). */
 export async function regenerateEmployeeCode(employeeId) {
-  const code = makeCode(8);
   const sb = getClient();
-  const { data, error } = await sb
-    .from('employees')
-    .update({ access_code: code })
-    .eq('id', employeeId)
-    .select('id,access_code')
-    .single();
-  if (error) throw error;
-  return data.access_code;
+
+  // Əsas yol: fix_auth.sql → regenerate_employee_code (20 cəhd, unikal zəmanətli)
+  try {
+    const { data, error } = await sb.rpc('regenerate_employee_code', {
+      p_employee_id: employeeId
+    });
+    if (!error && typeof data === 'string' && data.length >= 4) return data;
+    if (error && !/42883|PGRST202|does not exist/i.test(String(error.code || error.message || ''))) {
+      throw error;
+    }
+  } catch (err) {
+    if (!/42883|PGRST202|does not exist|fetch/i.test(String(err?.code || err?.message || ''))) throw err;
+    /* funksiya hələ yaradılmayıb → aşağıdaki ehtiyat yol */
+  }
+
+  // Ehtiyat yol (fix_auth.sql işə salınmayıbsa): yerli kod + toqquşmada təkrar cəhd
+  let lastError = null;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const code = makeCode(8);
+    const { data, error } = await sb
+      .from('employees')
+      .update({ access_code: code })
+      .eq('id', employeeId)
+      .select('id,access_code')
+      .single();
+
+    if (!error && data?.access_code) return data.access_code;
+
+    lastError = error;
+    if (!/23505|duplicate key/i.test(String(error?.code || error?.message || ''))) break;
+  }
+
+  throw lastError || new Error('CODE_GENERATION_FAILED');
 }
 
 export async function deleteEmployee(id) {
