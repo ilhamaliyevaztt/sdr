@@ -1,289 +1,269 @@
 /* ============================================================================
-   Hesab — Tənzimləmələr görünüşü (yalnız sahibkar)
+   RahatHesab — Tənzimləmələr (sahibkar)
    ========================================================================== */
 
-import { $, $$, icon, escapeHtml, toast, setLoading, showError, confirmDialog } from '../../lib/dom.js';
+import { icon, escapeHtml, toast, copyText, confirmDialog } from '../../lib/dom.js';
 import {
-  updateProfile,
-  changePassword,
-  friendlyError,
-  updateBusiness
+  updateProfile, changePassword, friendlyError, rotateJoinCode
 } from '../../lib/store.js';
-import { money, dateShort, downloadCsv, initials, KIND_LABELS, METHOD_LABELS } from '../../lib/format.js';
-import { openBusinessForm } from '../forms.js';
+import { openBusinessForm, openBusinessJoinCode } from '../forms.js';
+import { money, dateShort, CURRENCIES } from '../../lib/format.js';
+import { setLoading } from '../../lib/dom.js';
 
 export default function renderSettings(root, ctx) {
-  const { business, state, employees, balances, payments, currency } = ctx;
-  const user = state.user;
-  const profile = state.profile || {};
+  const { business, profile, state, currency, employees, reloadSpaces, refresh } = ctx;
+  const user = state.user || {};
+  const name = (profile && profile.full_name) || (user.user_metadata && user.user_metadata.full_name) || '';
 
   root.innerHTML = `
-    <div class="stack">
-      <section class="grid grid--sidebar">
-        <div class="stack">
-          <!-- Biznes profili -->
-          <article class="card">
-            <header class="card__head">
-              <div class="row" style="gap:12px;flex-wrap:nowrap;min-width:0">
-                <span class="avatar">${escapeHtml(initials(business?.name || 'B'))}</span>
-                <div style="min-width:0">
-                  <h3 class="card__title truncate">${escapeHtml(business?.name || 'Biznes')}</h3>
-                  <p class="card__sub truncate">${escapeHtml(business?.legal_name || 'Hüquqi ad göstərilməyib')}</p>
-                </div>
-              </div>
-              <button class="btn btn--ghost btn--sm" type="button" data-act="edit-business">
-                ${icon('i-edit', 15)} Redaktə
-              </button>
-            </header>
-            <div class="card__body">
-              <div class="kv">
-                <div class="kv__row">
-                  <span class="kv__key">Valyuta</span>
-                  <span class="kv__val">${escapeHtml(business?.currency || 'AZN')}</span>
-                </div>
-                <div class="kv__row">
-                  <span class="kv__key">Telefon</span>
-                  <span class="kv__val">${escapeHtml(business?.phone || '—')}</span>
-                </div>
-                <div class="kv__row">
-                  <span class="kv__key">E-poçt</span>
-                  <span class="kv__val">${escapeHtml(business?.email || '—')}</span>
-                </div>
-                <div class="kv__row">
-                  <span class="kv__key">Ünvan</span>
-                  <span class="kv__val">${escapeHtml(business?.address || '—')}</span>
-                </div>
-                <div class="kv__row">
-                  <span class="kv__key">Yaradılma tarixi</span>
-                  <span class="kv__val">${business?.created_at ? dateShort(business.created_at) : '—'}</span>
-                </div>
-              </div>
-            </div>
-          </article>
-
-          <!-- Hesab -->
-          <article class="card">
-            <header class="card__head">
-              <div>
-                <h3 class="card__title">Hesab məlumatları</h3>
-                <p class="card__sub">Ad, e-poçt və şifrə</p>
-              </div>
-            </header>
-            <div class="card__body stack">
-              <form id="profile-form" class="form-grid" novalidate>
-                <div class="field span-2">
-                  <label for="set-name">Ad və soyad</label>
-                  <div class="field__control">
-                    ${icon('i-user', 18)}
-                    <input id="set-name" type="text" value="${escapeHtml(profile.full_name || '')}" placeholder="Ad və soyad" />
-                  </div>
-                </div>
-                <div class="field span-2">
-                  <label for="set-email">E-poçt</label>
-                  <div class="field__control">
-                    ${icon('i-mail', 18)}
-                    <input id="set-email" type="email" value="${escapeHtml(user?.email || '')}" disabled />
-                  </div>
-                  <p class="field__hint">E-poçt ünvanı Supabase Authentication-da idarə olunur.</p>
-                </div>
-                <p class="form-error span-2" id="profile-err" role="alert" hidden></p>
-                <div class="span-2">
-                  <button class="btn btn--primary btn--sm" type="submit" id="profile-save">Yadda saxla</button>
-                </div>
-              </form>
-
-              <div class="divider"></div>
-
-              <form id="pw-form" class="form-grid" novalidate>
-                <div class="field span-2">
-                  <label for="set-pw">Yeni şifrə</label>
-                  <div class="field__control">
-                    ${icon('i-lock', 18)}
-                    <input id="set-pw" type="password" autocomplete="new-password" placeholder="Ən azı 8 simvol" />
-                  </div>
-                </div>
-                <div class="field span-2">
-                  <label for="set-pw2">Yeni şifrənin təkrarı</label>
-                  <div class="field__control">
-                    ${icon('i-shield', 18)}
-                    <input id="set-pw2" type="password" autocomplete="new-password" placeholder="Təkrar yazın" />
-                  </div>
-                </div>
-                <p class="form-error span-2" id="pw-err" role="alert" hidden></p>
-                <div class="span-2">
-                  <button class="btn btn--ghost btn--sm" type="submit" id="pw-save">Şifrəni dəyiş</button>
-                </div>
-              </form>
-            </div>
-          </article>
+    <div class="grid grid--2">
+      <section class="card">
+        <div class="card__head">
+          <div>
+            <h3 class="card__title">Biznes profili</h3>
+            <p class="card__sub">Ad, valyuta, maaş günü</p>
+          </div>
+          <button class="btn btn--ghost btn--sm" type="button" id="set-biz-edit">${icon('i-edit', 15)} Redaktə</button>
         </div>
+        <div class="card__body">
+          <dl class="kv">
+            <div class="kv__row"><dt>Ad</dt><dd>${escapeHtml(business?.name || '—')}</dd></div>
+            <div class="kv__row"><dt>Hüquqi ad</dt><dd>${escapeHtml(business?.legal_name || '—')}</dd></div>
+            <div class="kv__row"><dt>Valyuta</dt><dd>${escapeHtml(business?.currency || 'AZN')}</dd></div>
+            <div class="kv__row"><dt>Maaş günü</dt><dd>Ayın ${Number(business?.pay_day || 5)}-i</dd></div>
+            <div class="kv__row"><dt>Telefon</dt><dd>${escapeHtml(business?.phone || '—')}</dd></div>
+            <div class="kv__row"><dt>E-poçt</dt><dd>${escapeHtml(business?.email || '—')}</dd></div>
+            <div class="kv__row"><dt>Ünvan</dt><dd>${escapeHtml(business?.address || '—')}</dd></div>
+            <div class="kv__row"><dt>İşçi sayı</dt><dd>${employees.length}</dd></div>
+          </dl>
+        </div>
+      </section>
 
-        <div class="stack">
-          <!-- Statistika -->
-          <article class="card">
-            <header class="card__head">
-              <h3 class="card__title">Məlumat xülasəsi</h3>
-            </header>
-            <div class="card__body">
-              <div class="kv">
-                <div class="kv__row">
-                  <span class="kv__key">İşçi qeydləri</span>
-                  <span class="kv__val">${employees.length}</span>
-                </div>
-                <div class="kv__row">
-                  <span class="kv__key">Ödəniş qeydləri</span>
-                  <span class="kv__val">${payments.length}</span>
-                </div>
-                <div class="kv__row">
-                  <span class="kv__key">Balans sətirləri</span>
-                  <span class="kv__val">${balances.length}</span>
-                </div>
-                <div class="kv__row">
-                  <span class="kv__key">Baza</span>
-                  <span class="kv__val">Supabase PostgreSQL</span>
-                </div>
-              </div>
-              <div class="row" style="margin-top:14px;gap:8px">
-                <button class="btn btn--ghost btn--sm" type="button" data-act="export-employees">
-                  ${icon('i-download', 15)} İşçilər
-                </button>
-                <button class="btn btn--ghost btn--sm" type="button" data-act="export-payments">
-                  ${icon('i-download', 15)} Ödənişlər
-                </button>
-              </div>
-            </div>
-          </article>
+      <section class="card">
+        <div class="card__head">
+          <div>
+            <h3 class="card__title">Kodlar</h3>
+            <p class="card__sub">İşçiləri necə qoşacaqsınız</p>
+          </div>
+        </div>
+        <div class="card__body">
+          <div class="banner" style="margin-bottom:14px">
+            ${icon('i-key', 18)}
+            <span>
+              <strong>Ən sadə üsul: hər işçinin öz kodu</strong>
+              «İşçilər» bölməsində işçi kartını açın — kod orada böyük hərflərlə yazılıb.
+              Kopyalayıb işçiyə göndərin.
+            </span>
+          </div>
 
-          <!-- Təhlükəsizlik -->
-          <article class="card">
-            <header class="card__head">
-              <h3 class="card__title">Təhlükəsizlik</h3>
-            </header>
-            <div class="card__body stack--sm">
-              <div class="alert alert--info">
-                ${icon('i-shield', 17)}
-                <span>
-                  Bütün məlumatlar <strong>Row Level Security</strong> ilə qorunur.
-                  Siz yalnız öz biznesinizin məlumatlarını görürsünüz.
-                </span>
+          <div class="field">
+            <span class="field__label">Biznesin ümumi kodu</span>
+            <div class="codebox" style="margin-top:4px">
+              <div style="flex:1 1 140px;min-width:0">
+                <div class="codebox__code" id="set-join-code">${escapeHtml(business?.join_code || '——')}</div>
               </div>
-              <div class="alert alert--soft">
-                ${icon('i-key', 17)}
-                <span>API açarları frontend-də yalnız <strong>anon key</strong> ilə işləyir; service_role açarı heç vaxt istifadə olunmur.</span>
-              </div>
+              <button class="btn btn--ghost btn--sm" type="button" id="set-code-copy">${icon('i-copy', 14)} Kopyala</button>
+              <button class="btn btn--ghost btn--sm" type="button" id="set-code-new">${icon('i-refresh', 14)} Yenilə</button>
             </div>
-          </article>
+            <p class="field__hint">
+              Bu kod yalnız ümumi giriş üçündür. Tövsiyə olunan yol — hər işçinin şəxsi kodu.
+            </p>
+          </div>
 
-          <article class="card">
-            <header class="card__head">
-              <h3 class="card__title">Sessiya</h3>
-            </header>
-            <div class="card__body">
-              <p class="muted" style="font-size:13px;margin-bottom:12px">
-                Hesabdan çıxdıqdan sonra məlumatlara giriş üçün yenidən daxil olmalısınız.
-              </p>
-              <button class="btn btn--danger btn--sm" type="button" data-act="logout">
-                ${icon('i-logout', 15)} Hesabdan çıx
-              </button>
-            </div>
-          </article>
+          <button class="btn btn--ghost btn--block btn--sm" type="button" id="set-code-help" style="margin-top:12px">
+            ${icon('i-help', 15)} Kod necə işləyir?
+          </button>
         </div>
       </section>
     </div>
+
+    <div class="grid grid--2" style="margin-top:14px">
+      <section class="card">
+        <div class="card__head">
+          <div>
+            <h3 class="card__title">Şəxsi məlumatlarım</h3>
+            <p class="card__sub">Ad və telefon</p>
+          </div>
+        </div>
+        <div class="card__body">
+          <form id="set-profile-form" style="display:grid;gap:12px" novalidate>
+            <div class="field">
+              <label for="set-name">Ad və soyad</label>
+              <div class="field__control">
+                ${icon('i-user', 18)}
+                <input id="set-name" type="text" value="${escapeHtml(name)}" placeholder="Ad Soyad" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="set-phone">Telefon</label>
+              <div class="field__control">
+                ${icon('i-receipt', 18)}
+                <input id="set-phone" type="tel" value="${escapeHtml((profile && profile.phone) || '')}" placeholder="+994 50 000 00 00" />
+              </div>
+            </div>
+            <p class="form-error" id="set-profile-err" role="alert" hidden></p>
+            <button class="btn btn--primary btn--block btn--sm" type="submit" id="set-profile-save">
+              Yadda saxla
+            </button>
+          </form>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card__head">
+          <div>
+            <h3 class="card__title">Şifrə</h3>
+            <p class="card__sub">Hesabın təhlükəsizliyi</p>
+          </div>
+        </div>
+        <div class="card__body">
+          <form id="set-pass-form" style="display:grid;gap:12px" novalidate>
+            <div class="field">
+              <label for="set-pass1">Yeni şifrə</label>
+              <div class="field__control">
+                ${icon('i-lock', 18)}
+                <input id="set-pass1" type="password" autocomplete="new-password" placeholder="Ən azı 8 simvol" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="set-pass2">Təkrar</label>
+              <div class="field__control">
+                ${icon('i-shield', 18)}
+                <input id="set-pass2" type="password" autocomplete="new-password" placeholder="Şifrəni təkrar yazın" />
+              </div>
+            </div>
+            <p class="form-error" id="set-pass-err" role="alert" hidden></p>
+            <p class="form-success" id="set-pass-ok" role="status" hidden></p>
+            <button class="btn btn--ghost btn--block btn--sm" type="submit" id="set-pass-save">
+              Şifrəni dəyiş
+            </button>
+          </form>
+
+          <p class="tiny muted" style="margin-top:14px;line-height:1.65">
+            Hesab: <b>${escapeHtml(user.email || '—')}</b><br />
+            Qeydiyyat: ${dateShort(user.created_at)}
+          </p>
+        </div>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:14px">
+      <div class="card__head">
+        <div>
+          <h3 class="card__title">Təhlükəli zona</h3>
+          <p class="card__sub">Geri qaytarıla bilməyən əməliyyatlar</p>
+        </div>
+      </div>
+      <div class="card__body">
+        <div class="banner banner--danger" style="margin-bottom:14px">
+          ${icon('i-alert', 18)}
+          <span>
+            <strong>Diqqət</strong>
+            Biznesi silsəniz, bütün işçilər, ödənişlər, davamiyyət və qeydlər də silinir.
+          </span>
+        </div>
+        <button class="btn btn--danger-ghost btn--sm" type="button" id="set-biz-delete">
+          ${icon('i-trash', 15)} «${escapeHtml(business?.name || 'Biznes')}» biznesini sil
+        </button>
+      </div>
+    </section>
   `;
 
-  /* ------------------------------ ACTIONS ------------------------------- */
+  root.querySelector('#set-biz-edit')?.addEventListener('click', () => {
+    openBusinessForm({ business, onSaved: reloadSpaces });
+  });
 
-  $('[data-act="edit-business"]', root)?.addEventListener('click', () => {
-    openBusinessForm({
-      business,
-      onSaved: ctx.refresh
+  root.querySelector('#set-code-copy')?.addEventListener('click', async () => {
+    const ok = await copyText(business?.join_code || '');
+    toast(ok ? 'Kod kopyalandı.' : 'Kopyalamaq mümkün olmadı.', ok ? 'ok' : 'error');
+  });
+
+  root.querySelector('#set-code-new')?.addEventListener('click', async () => {
+    const ok = await confirmDialog({
+      title: 'Ümumi kod yenilənsin?',
+      message: 'Köhnə ümumi kod işləməyəcək. İşçilərin şəxsi kodları dəyişməz.',
+      confirmText: 'Yenilə'
     });
+    if (!ok) return;
+    try {
+      const code = await rotateJoinCode(business.id);
+      const el = root.querySelector('#set-join-code');
+      if (el) el.textContent = code;
+      toast('Yeni kod: ' + code, 'ok', 7000);
+      await refresh();
+    } catch (err) {
+      toast(friendlyError(err), 'error');
+    }
   });
 
-  $('[data-act="logout"]', root)?.addEventListener('click', () => {
-    $('#logout-btn')?.click();
+  root.querySelector('#set-code-help')?.addEventListener('click', () => ctx.navigate('help'));
+
+  root.querySelector('#set-biz-delete')?.addEventListener('click', () => {
+    openBusinessForm({ business, onSaved: reloadSpaces });
   });
 
-  $('[data-act="export-employees"]', root)?.addEventListener('click', () => {
-    const header = ['Ad', 'Vəzifə', 'Aylıq maaş', 'E-poçt', 'Telefon', 'İşə qəbul', 'Status'];
-    const body = employees.map((e) => [
-      e.full_name,
-      e.position || '',
-      Number(e.monthly_salary || 0).toFixed(2),
-      e.email || '',
-      e.phone || '',
-      e.hire_date || '',
-      e.is_active ? 'Aktiv' : 'Passiv'
-    ]);
-    downloadCsv(`isci-siyahisi-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...body]);
-    toast('İşçi siyahısı yükləndi.', 'ok');
-  });
+  const profileForm = root.querySelector('#set-profile-form');
+  profileForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errBox = root.querySelector('#set-profile-err');
+    const btn = root.querySelector('#set-profile-save');
+    errBox.hidden = true;
 
-  $('[data-act="export-payments"]', root)?.addEventListener('click', () => {
-    const header = ['Tarix', 'İşçi', 'Növ', 'Məbləğ', 'Üsul', 'Qeyd'];
-    const body = payments.map((p) => [
-      p.paid_at,
-      p.employees?.full_name || '',
-      KIND_LABELS[p.kind] || p.kind,
-      Number(p.amount).toFixed(2),
-      METHOD_LABELS[p.method] || '',
-      p.note || ''
-    ]);
-    downloadCsv(`odenisler-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...body]);
-    toast('Ödəniş tarixçəsi yükləndi.', 'ok');
-  });
+    const fullName = root.querySelector('#set-name').value.trim();
+    const phone = root.querySelector('#set-phone').value.trim();
 
-  /* ---------------------------- PROFIL FORMU ---------------------------- */
-
-  const profileForm = $('#profile-form', root);
-  profileForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const btn = $('#profile-save', root);
-    const err = $('#profile-err', root);
-    showError(err, '');
-
-    const name = $('#set-name', root).value.trim();
-    if (name.length < 2) return showError(err, 'Ad və soyadınızı tam yazın.');
+    if (fullName.length < 2) {
+      errBox.textContent = 'Adınızı tam yazın.';
+      errBox.hidden = false;
+      return;
+    }
 
     setLoading(btn, true);
     try {
-      await updateProfile(name);
-      if (state.profile) state.profile.full_name = name;
-      const label = $('#user-name');
-      if (label) label.textContent = name;
-      toast('Profil yeniləndi.', 'ok');
-    } catch (e) {
-      console.error('[settings] profile update failed', e);
-      showError(err, friendlyError(e));
+      await updateProfile({ fullName, phone });
+      toast('Məlumatlar yeniləndi.', 'ok');
+      await refresh();
+    } catch (err) {
+      errBox.textContent = friendlyError(err);
+      errBox.hidden = false;
     } finally {
       setLoading(btn, false);
     }
   });
 
-  /* ---------------------------- ŞİFRƏ FORMU ----------------------------- */
+  const passForm = root.querySelector('#set-pass-form');
+  passForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errBox = root.querySelector('#set-pass-err');
+    const okBox = root.querySelector('#set-pass-ok');
+    const btn = root.querySelector('#set-pass-save');
+    errBox.hidden = true;
+    okBox.hidden = true;
 
-  const pwForm = $('#pw-form', root);
-  pwForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const btn = $('#pw-save', root);
-    const err = $('#pw-err', root);
-    showError(err, '');
+    const p1 = root.querySelector('#set-pass1').value;
+    const p2 = root.querySelector('#set-pass2').value;
 
-    const pw1 = $('#set-pw', root).value;
-    const pw2 = $('#set-pw2', root).value;
-
-    if (pw1.length < 8) return showError(err, 'Şifrə ən azı 8 simvol olmalıdır.');
-    if (pw1 !== pw2) return showError(err, 'Şifrələr uyğun gəlmir.');
+    if (p1.length < 8) {
+      errBox.textContent = 'Şifrə ən azı 8 simvol olmalıdır.';
+      errBox.hidden = false;
+      return;
+    }
+    if (p1 !== p2) {
+      errBox.textContent = 'Şifrələr uyğun gəlmir.';
+      errBox.hidden = false;
+      return;
+    }
 
     setLoading(btn, true);
     try {
-      await changePassword(pw1);
-      pwForm.reset();
+      await changePassword(p1);
+      okBox.textContent = 'Şifrə dəyişdirildi.';
+      okBox.hidden = false;
+      passForm.reset();
       toast('Şifrə dəyişdirildi.', 'ok');
-    } catch (e) {
-      console.error('[settings] password change failed', e);
-      showError(err, friendlyError(e));
+    } catch (err) {
+      errBox.textContent = friendlyError(err);
+      errBox.hidden = false;
     } finally {
       setLoading(btn, false);
     }

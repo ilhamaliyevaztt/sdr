@@ -1,22 +1,25 @@
 {
-  "name": "hesab-emekhaqqi",
-  "version": "1.0.0",
+  "name": "rahathesab",
+  "version": "2.0.0",
   "private": true,
-  "description": "Hesab — kiçik bizneslər üçün əməkhaqqı, avans və ödəniş uçotu (statik SPA + Supabase)",
+  "description": "RahatHesab — kiçik bizneslər üçün sadə əməkhaqqı, avans və ödəniş uçotu (statik SPA + Supabase)",
   "type": "module",
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "preview": "python3 -m http.server 3000 --bind 0.0.0.0 --directory dist",
+    "verify": "npm run check && npm run build"
   },
   "keywords": [
     "payroll",
     "supabase",
     "static-site",
     "render",
-    "spa"
+    "spa",
+    "azerbaijan"
   ],
   "license": "MIT"
 }

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * Hesab — statik build skripti
+ * RahatHesab — statik build skripti
  * ----------------------------------------------------------------------------
  * Heç bir bundler, framework və ya server istifadə etmir.
  * Sadəcə sayt fayllarını `dist/` qovluğuna köçürür və runtime konfiqurasiyanı
- * Render environment dəyişənlərindən yaradır.
+ * environment dəyişənlərindən yaradır.
  *
- * Render Static Site ayarları:
- *   Build Command:    npm run build
+ * Render / Cloudflare Pages ayarları:
+ *   Build Command:     npm run build
  *   Publish Directory: dist
  */
 
@@ -21,6 +21,7 @@ const DIST = path.join(ROOT, 'dist');
 
 const COPY = [
   { from: 'index.html', to: 'index.html' },
+  { from: 'manifest.webmanifest', to: 'manifest.webmanifest' },
   { from: 'assets', to: 'assets' },
   { from: 'favicon.ico', to: 'favicon.ico', optional: true }
 ];
@@ -113,7 +114,6 @@ async function main() {
   }
 
   const url = envUrl || FALLBACK_URL;
-  // Əgər mühit yalnız anon (JWT) verirsə, publishable fallback yazılmır.
   const publishableKey = rawPublishable || (rawAnon ? '' : FALLBACK_PUBLISHABLE_KEY);
   const anonKey = rawAnon || '';
 
@@ -136,22 +136,18 @@ async function main() {
     );
   }
 
-  for (const [name, key] of [
-    ['SUPABASE_ANON_KEY', anonKey]
-  ]) {
-    const keyRef = projectRefFromJwt(key);
-    if (keyRef && keyRef !== urlRef) {
-      throw new Error(
-        `UYUŞMAZLIQ: ${name} layihə ref-i "${keyRef}", SUPABASE_URL ref-i "${urlRef}". ` +
-          'Açar və URL eyni Supabase layihəsinə aid olmalıdır.'
-      );
-    }
+  const anonKeyRef = projectRefFromJwt(anonKey);
+  if (anonKeyRef && anonKeyRef !== urlRef) {
+    throw new Error(
+      `UYUŞMAZLIQ: SUPABASE_ANON_KEY layihə ref-i "${anonKeyRef}", SUPABASE_URL ref-i "${urlRef}". ` +
+        'Açar və URL eyni Supabase layihəsinə aid olmalıdır.'
+    );
   }
 
   const config = `/* AVTOMATİK YARADILIB — scripts/build.mjs tərəfindən.
    Bu faylı əl ilə redaktə etməyin; dəyərlər environment dəyişənlərindən gəlir.
    Layihə ref: ${urlRef} */
-window.__HESAB_ENV__ = {
+window.__RAHATHESAB_ENV__ = {
   SUPABASE_URL: ${JSON.stringify(url)},${
     publishableKey
       ? `
@@ -163,9 +159,12 @@ window.__HESAB_ENV__ = {
   SUPABASE_ANON_KEY: ${JSON.stringify(anonKey)},`
       : ''
   }
-  APP_NAME: 'Hesab',
+  APP_NAME: 'RahatHesab',
   DEFAULT_CURRENCY: 'AZN'
 };
+
+/* Geriyə uyğunluq (köhnə ad) */
+window.__HESAB_ENV__ = window.__RAHATHESAB_ENV__;
 `;
 
   await writeFile(path.join(DIST, 'assets', 'js', 'config.js'), config, 'utf8');
@@ -178,7 +177,9 @@ window.__HESAB_ENV__ = {
     'assets/css/styles.css',
     'assets/js/vendor/supabase.js',
     'assets/js/config.js',
-    'assets/js/app.js'
+    'assets/js/app.js',
+    'assets/img/logo-mark.png',
+    'assets/img/favicon-32.png'
   ];
   for (const ref of requiredRefs) {
     if (!indexHtml.includes(ref)) {
@@ -190,10 +191,18 @@ window.__HESAB_ENV__ = {
   }
   log('index.html istinadları yoxlanıldı');
 
-  // Heç bir HTML faylı xarici JS/CDN-dən asılı olmamalıdır (şriftlər istisnadır)
   if (/<script[^>]+src="https?:\/\//i.test(indexHtml)) {
     throw new Error('index.html xarici <script src> istifadə edir — bütün JS lokal olmalıdır.');
   }
+
+  // manifest faylındaki ikonlar mövcuddurmu?
+  const manifest = JSON.parse(await readFile(path.join(DIST, 'manifest.webmanifest'), 'utf8'));
+  for (const ic of manifest.icons || []) {
+    if (!(await exists(path.join(DIST, ic.src)))) {
+      throw new Error(`manifest.webmanifest ikonu tapılmadı: ${ic.src}`);
+    }
+  }
+  log('manifest ikonları yoxlanıldı');
 
   log(`hazırdır → ${DIST}`);
 }

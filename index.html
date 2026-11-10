@@ -3,14 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0f172a" />
-  <title>Hesab — Əməkhaqqı və İşçi İdarəetməsi</title>
-  <meta name="description" content="Kiçik bizneslər üçün əməkhaqqı, avans və ödəniş uçotu platforması. İşçiləri idarə edin, maaşları avtomatik hesablayın, borcları izləyin." />
+  <meta name="theme-color" content="#1F313F" />
+  <title>RahatHesab — Əməkhaqqı və İşçi İdarəetməsi</title>
+  <meta name="description" content="Kiçik bizneslər üçün sadə əməkhaqqı, avans və ödəniş uçotu. İşçiləri idarə edin, maaşları avtomatik hesablayın, qalıq borcu izləyin." />
   <meta name="robots" content="index, follow" />
-  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="assets/img/favicon-32.png" sizes="32x32" type="image/png" />
+  <link rel="icon" href="assets/img/favicon-64.png" sizes="64x64" type="image/png" />
+  <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="assets/css/styles.css" />
 </head>
 <body>
@@ -18,25 +21,22 @@
 
   <!-- ============ BOOT / LOADING ============ -->
   <div class="boot" id="boot-screen" role="status" aria-live="polite">
-    <div class="boot__mark" aria-hidden="true">
-      <svg viewBox="0 0 32 32" width="40" height="40"><use href="#i-ledger"></use></svg>
-    </div>
+    <img class="boot__logo" src="assets/img/logo-mark.png" alt="" width="64" height="64" />
     <div class="boot__spinner" aria-hidden="true"></div>
-    <p class="boot__text">Sistem yüklənir…</p>
+    <p class="boot__text">RahatHesab yüklənir…</p>
   </div>
 
   <!-- ============ CONNECTION ERROR ============ -->
   <section class="fatal" id="fatal-screen" hidden>
     <div class="fatal__card">
       <div class="fatal__icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26"><use href="#i-alert"></use></svg></div>
-      <h1>Supabase bağlantısı qurulmadı</h1>
-      <p id="fatal-message">Layihə URL-i cavab vermir. Zəhmət olmasa konfiqurasiyanı yoxlayın.</p>
-      <ul class="fatal__list">
-        <li><code>assets/js/config.js</code> faylında <code>SUPABASE_URL</code> və <code>SUPABASE_PUBLISHABLE_KEY</code> (və ya <code>SUPABASE_ANON_KEY</code>) dəyərlərini yoxlayın.</li>
-        <li>URL-dəki layihə ref-i açarın içindəki <code>ref</code> ilə eyni olmalıdır — ən çox rast gəlinən səhv URL yazı xətasıdır.</li>
-        <li>Render-də <code>SUPABASE_URL</code> və <code>SUPABASE_PUBLISHABLE_KEY</code> environment dəyişənlərinin təyin olunduğuna əmin olun.</li>
-        <li>Supabase layihəsinin aktiv (paused deyil) olduğunu yoxlayın.</li>
-      </ul>
+      <h1>Baza ilə əlaqə qurulmadı</h1>
+      <p id="fatal-message">Supabase layihəsinə qoşulmaq mümkün olmadı. Zəhmət olmasa konfiqurasiyanı yoxlayın.</p>
+      <ol class="fatal__list">
+        <li><code>assets/js/config.js</code> faylında <code>SUPABASE_URL</code> və publik açarın düzgün olduğunu yoxlayın.</li>
+        <li>Supabase → SQL Editor bölməsində <code>supabase/schema.sql</code> faylını işə salın.</li>
+        <li>Supabase layihəsinin <b>paused</b> (dayandırılmış) olmadığını yoxlayın.</li>
+      </ol>
       <button class="btn btn--primary" type="button" id="fatal-retry">Yenidən cəhd et</button>
       <p class="fatal__hint">Texniki detallar brauzer konsolunda göstərilir.</p>
     </div>
@@ -46,26 +46,29 @@
   <main class="auth" id="auth-screen" hidden>
     <aside class="auth__aside">
       <div class="auth__brand">
-        <span class="brand__mark" aria-hidden="true"><svg viewBox="0 0 32 32" width="26" height="26"><use href="#i-ledger"></use></svg></span>
-        <span class="brand__name">Hesab</span>
+        <img class="auth__logo" src="assets/img/logo-mark.png" alt="RahatHesab" width="44" height="44" />
+        <span class="brand__name">RahatHesab</span>
       </div>
+
       <div class="auth__pitch">
-        <h1>Əməkhaqqı uçotu,<br />nəhayət sadə.</h1>
+        <h1>Əməkhaqqı uçotu,<br />nəhayət rahat.</h1>
         <p>İşçilərinizi bir yerdə saxlayın, avans və maaş ödənişlərini qeyd edin, qalıq borcu avtomatik izləyin.</p>
         <ul class="auth__features">
-          <li><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><use href="#i-check-circle"></use></svg> Avtomatik aylıq maaş hesablaması</li>
-          <li><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><use href="#i-check-circle"></use></svg> İşçi üçün şəxsi kabinet</li>
-          <li><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><use href="#i-check-circle"></use></svg> Row Level Security ilə qorunan məlumatlar</li>
+          <li><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><use href="#i-check-circle"></use></svg> Maaş avtomatik hesablanır</li>
+          <li><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><use href="#i-check-circle"></use></svg> İşçi kodu ilə öz kabinetinə girir</li>
+          <li><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><use href="#i-check-circle"></use></svg> Hər sahibkarın məlumatı ayrıdır</li>
+          <li><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><use href="#i-check-circle"></use></svg> Telefonda da tam işləyir</li>
         </ul>
       </div>
-      <p class="auth__foot">© <span id="auth-year">2026</span> Hesab · Bütün hüquqlar qorunur</p>
+
+      <p class="auth__foot">© <span id="auth-year">2026</span> RahatHesab · Bütün hüquqlar qorunur</p>
     </aside>
 
     <div class="auth__panel">
       <div class="auth__panel-inner">
         <div class="auth__mobile-brand">
-          <span class="brand__mark" aria-hidden="true"><svg viewBox="0 0 32 32" width="24" height="24"><use href="#i-ledger"></use></svg></span>
-          <span class="brand__name">Hesab</span>
+          <img class="auth__logo" src="assets/img/logo-mark.png" alt="RahatHesab" width="38" height="38" />
+          <span class="brand__name">RahatHesab</span>
         </div>
 
         <div class="segmented" role="tablist" aria-label="Giriş növü">
@@ -76,7 +79,7 @@
         <!-- LOGIN -->
         <form class="auth-form" id="login-form" novalidate>
           <h2 class="auth-form__title">Xoş gəlmisiniz</h2>
-          <p class="auth-form__sub">Hesabınıza daxil olun və davam edin.</p>
+          <p class="auth-form__sub">Hesabınıza daxil olun. Sahibkar və işçi eyni formadan girir.</p>
           <div class="field">
             <label for="login-email">E-poçt</label>
             <div class="field__control">
@@ -102,17 +105,20 @@
             <button type="button" class="linkbtn" id="forgot-password">Şifrəmi unutdum</button>
           </div>
           <p class="form-error" id="login-error" role="alert" hidden></p>
-          <button type="submit" class="btn btn--primary btn--block" id="login-submit">
+          <button type="submit" class="btn btn--primary btn--block btn--lg" id="login-submit">
             <span class="btn__label">Daxil ol</span>
             <span class="btn__spinner" aria-hidden="true"></span>
           </button>
-          <p class="auth-form__note">İşçisiniz? Eyni formadan öz e-poçt və şifrənizlə daxil olun — kabinet avtomatik açılacaq.</p>
+          <div class="auth-form__hintbox">
+            <strong>İşçisiniz?</strong>
+            <p>Eyni formadan öz e-poçt və şifrənizlə daxil olun. Sonra sahibkarınızdan aldığınız <b>8 simvollu kodu</b> yazın — kabinetiniz açılacaq.</p>
+          </div>
         </form>
 
         <!-- REGISTER -->
         <form class="auth-form" id="register-form" hidden novalidate>
           <h2 class="auth-form__title">Hesab yaradın</h2>
-          <p class="auth-form__sub">Sahibkar kimi qeydiyyatdan keçin və biznesinizi əlavə edin.</p>
+          <p class="auth-form__sub">Sahibkar və ya işçi — hər ikisi buradan qeydiyyatdan keçir.</p>
           <div class="field">
             <label for="reg-name">Ad və soyad</label>
             <div class="field__control">
@@ -150,11 +156,12 @@
             <span>Məlumatlarımın bu sistemdə saxlanmasına razıyam.</span>
           </label>
           <p class="form-error" id="register-error" role="alert" hidden></p>
-          <button type="submit" class="btn btn--primary btn--block" id="register-submit">
+          <p class="form-success" id="register-success" role="status" hidden></p>
+          <button type="submit" class="btn btn--primary btn--block btn--lg" id="register-submit">
             <span class="btn__label">Hesab yarat</span>
             <span class="btn__spinner" aria-hidden="true"></span>
           </button>
-          <p class="auth-form__note">Qeydiyyatdan sonra biznes adınızı daxil edəcəksiniz.</p>
+          <p class="auth-form__note">Qeydiyyatdan sonra: sahibkarsınızsa biznes yaradacaqsınız, işçisinizsə kodu daxil edəcəksiniz.</p>
         </form>
 
         <!-- RESET -->
@@ -187,49 +194,74 @@
     <aside class="sidebar" id="sidebar" aria-label="Əsas naviqasiya">
       <div class="sidebar__head">
         <div class="brand">
-          <span class="brand__mark" aria-hidden="true"><svg viewBox="0 0 32 32" width="24" height="24"><use href="#i-ledger"></use></svg></span>
-          <span class="brand__name">Hesab</span>
+          <img class="brand__logo" src="assets/img/logo-mark.png" alt="" width="34" height="34" />
+          <span class="brand__name">RahatHesab</span>
         </div>
         <button class="iconbtn sidebar__close" type="button" id="sidebar-close" aria-label="Menyunu bağla">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><use href="#i-close"></use></svg>
         </button>
       </div>
 
-      <div class="sidebar__business" id="sidebar-business">
-        <span class="avatar" id="business-avatar" aria-hidden="true">B</span>
-        <span class="sidebar__business-text">
-          <strong id="business-name">Biznes</strong>
-          <small id="business-role">Sahibkar</small>
-        </span>
+      <!-- Biznes seçici -->
+      <div class="bizswitch" id="bizswitch">
+        <button class="bizswitch__btn" type="button" id="business-switch-btn" aria-haspopup="listbox" aria-expanded="false">
+          <span class="avatar avatar--sq" id="business-avatar" aria-hidden="true">B</span>
+          <span class="bizswitch__text">
+            <strong id="business-name">Biznes</strong>
+            <small id="business-role">Sahibkar</small>
+          </span>
+          <svg class="bizswitch__chev" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><use href="#i-chevron-down"></use></svg>
+        </button>
+        <div class="bizswitch__menu" id="business-menu" role="listbox" hidden></div>
       </div>
 
       <nav class="nav" id="main-nav">
-        <p class="nav__label">İdarəetmə</p>
+        <p class="nav__label">Əsas</p>
         <button type="button" class="nav__item" data-view="dashboard">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><use href="#i-grid"></use></svg>
           <span>İcmal</span>
         </button>
-        <button type="button" class="nav__item" data-view="employees">
+        <button type="button" class="nav__item" data-view="employees" data-roles="owner">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><use href="#i-users"></use></svg>
           <span>İşçilər</span>
           <span class="nav__badge" id="nav-employees-badge" hidden>0</span>
         </button>
         <button type="button" class="nav__item" data-view="payments">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><use href="#i-wallet"></use></svg>
-          <span>Ödənişlər</span>
+          <span id="nav-payments-label">Ödənişlər</span>
         </button>
-        <button type="button" class="nav__item" data-view="reports">
+        <button type="button" class="nav__item" data-view="worklog">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><use href="#i-clock"></use></svg>
+          <span id="nav-worklog-label">Davamiyyət</span>
+        </button>
+        <button type="button" class="nav__item" data-view="leaves">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><use href="#i-calendar"></use></svg>
+          <span>Məzuniyyət</span>
+          <span class="nav__badge nav__badge--soft" id="nav-leaves-badge" hidden>0</span>
+        </button>
+        <button type="button" class="nav__item" data-view="notes" data-roles="owner">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><use href="#i-note"></use></svg>
+          <span>Qeydlər</span>
+        </button>
+
+        <p class="nav__label" data-roles="owner">Analiz</p>
+        <button type="button" class="nav__item" data-view="reports" data-roles="owner">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><use href="#i-chart"></use></svg>
           <span>Hesabatlar</span>
         </button>
+
         <p class="nav__label">Hesab</p>
-        <button type="button" class="nav__item" data-view="settings">
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><use href="#i-settings"></use></svg>
-          <span>Tənzimləmələr</span>
-        </button>
         <button type="button" class="nav__item" data-view="profile">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><use href="#i-user"></use></svg>
           <span>Şəxsi kabinet</span>
+        </button>
+        <button type="button" class="nav__item" data-view="settings" data-roles="owner">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><use href="#i-settings"></use></svg>
+          <span>Tənzimləmələr</span>
+        </button>
+        <button type="button" class="nav__item" data-view="help">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><use href="#i-help"></use></svg>
+          <span>Kömək</span>
         </button>
       </nav>
 
@@ -254,13 +286,13 @@
         </button>
         <div class="topbar__title">
           <h1 id="page-title">İcmal</h1>
-          <p id="page-subtitle">Biznesinizin əməkhaqqı mənzərəsi</p>
+          <p id="page-subtitle">Biznesinizin qısa mənzərəsi</p>
         </div>
         <div class="topbar__actions">
           <button class="iconbtn" type="button" id="theme-toggle" aria-label="Tema dəyişdir" title="Tema">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><use href="#i-moon" id="theme-icon"></use></svg>
           </button>
-          <button class="btn btn--primary btn--sm" type="button" id="quick-add" data-open-payment>
+          <button class="btn btn--primary btn--sm" type="button" id="quick-add" data-open-payment data-roles="owner">
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><use href="#i-plus"></use></svg>
             <span>Ödəniş</span>
           </button>
@@ -278,12 +310,6 @@
   <!-- ============ ICON SPRITE ============ -->
   <svg xmlns="http://www.w3.org/2000/svg" class="sprite" aria-hidden="true" focusable="false">
     <defs>
-      <symbol id="i-ledger" viewBox="0 0 32 32">
-        <path d="M9 4.5h11.2a5 5 0 0 1 5 5v18a1 1 0 0 1-1 1H9a3.5 3.5 0 0 1-3.5-3.5V8A3.5 3.5 0 0 1 9 4.5Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M5.5 24.5a3 3 0 0 1 3-3h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        <path d="M11 11h9M11 15.5h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        <circle cx="21.5" cy="21" r="2.2" fill="currentColor"/>
-      </symbol>
       <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
       <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9.5" cy="8.5" r="3.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 20c0-3.2 2.7-5.5 6-5.5s6 2.3 6 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.2 5.4a3.3 3.3 0 0 1 0 6.3M18 14.9c2 .7 3.4 2.4 3.4 4.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
       <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M3.5 8.5A2.5 2.5 0 0 1 6 6h12a2.5 2.5 0 0 1 2.5 2.5v9A2.5 2.5 0 0 1 18 20H6a2.5 2.5 0 0 1-2.5-2.5v-9Z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10.5h17" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="16.5" cy="15" r="1.4" fill="currentColor"/></symbol>
@@ -315,17 +341,20 @@
       <symbol id="i-banknote" viewBox="0 0 24 24"><rect x="2.6" y="6.4" width="18.8" height="11.2" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6 9.6v4.8M18 9.6v4.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
       <symbol id="i-trending" viewBox="0 0 24 24"><path d="m3.6 15.6 5.2-5.2 3.6 3.6 5.4-5.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M14.4 8.4h4.6v4.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3.8v11M8 11l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 17.5v1.2c0 1 .8 1.8 1.8 1.8h11.4c1 0 1.8-.8 1.8-1.8v-1.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
-      <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-      <symbol id="i-arrow-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V3.8M8 7.8l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 17.5v1.2c0 1 .8 1.8 1.8 1.8h11.4c1 0 1.8-.8 1.8-1.8v-1.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
       <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9.5 6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-      <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3.5 5.5h17l-6.6 7.6v6.4l-3.8-1.9v-4.5L3.5 5.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+      <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M5.5 3.8h13v17.4l-2.2-1.4-2.2 1.4-2.1-1.4-2.2 1.4-2.1-1.4-2.2 1.4V3.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.8 8.4h6.4M8.8 12h6.4M8.8 15.4h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
       <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.5 8.5V6.2c0-1-.8-1.7-1.7-1.7H6.2c-1 0-1.7.8-1.7 1.7v7.6c0 1 .8 1.7 1.7 1.7h2.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
-      <symbol id="i-link" viewBox="0 0 24 24"><path d="M10.2 13.8a3.6 3.6 0 0 0 5.1 0l2.6-2.6a3.6 3.6 0 1 0-5.1-5.1L11.5 7.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M13.8 10.2a3.6 3.6 0 0 0-5.1 0l-2.6 2.6a3.6 3.6 0 1 0 5.1 5.1l1.3-1.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
       <symbol id="i-empty-box" viewBox="0 0 24 24"><path d="M3.5 9.5 6.8 4h10.4l3.3 5.5v8A2 2 0 0 1 18.5 20h-13a2 2 0 0 1-2-2.5v-8Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M3.5 9.5h5l1 2.2h5l1-2.2h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
-      <symbol id="i-print" viewBox="0 0 24 24"><path d="M7 8.2V3.8h10v4.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><rect x="3.8" y="8.2" width="16.4" height="8.4" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 13.4h10v6.8H7v-6.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
       <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.4V12l3.2 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
       <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8.4" cy="15.6" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m11 13 8.2-8.2M16.4 7.6l2.4 2.4M14 10l2 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="i-note" viewBox="0 0 24 24"><path d="M5.5 4.5h13v15h-13z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.6 8.6h6.8M8.6 12h6.8M8.6 15.4h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+      <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9.4 9.2a2.6 2.6 0 1 1 3.6 2.4c-.7.3-1 .9-1 1.7v.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="17" r="1.1" fill="currentColor"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M20 4v4.6h-4.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6.5 10a5.5 5.5 0 0 1 11 0c0 3.6 1.5 5 1.5 5H5s1.5-1.4 1.5-5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M10 18a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="i-print" viewBox="0 0 24 24"><path d="M7 8.2V3.8h10v4.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><rect x="3.8" y="8.2" width="16.4" height="8.4" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 13.4h10v6.8H7v-6.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+      <symbol id="i-login-key" viewBox="0 0 24 24"><path d="M13 6.5h6.5v4H13z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.5 8.5a4.5 4.5 0 1 0 0 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M13 8.5v4" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
     </defs>
   </svg>
 

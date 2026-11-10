@@ -1,12 +1,12 @@
 /* ============================================================================
-   Hesab — Tətbiq nüvəsi
+   RahatHesab — Tətbiq nüvəsi
    ----------------------------------------------------------------------------
-   MARŞRUTLAMA: URL HEÇ VAXT DƏYİŞMİR.
-   Naviqasiya yalnız yaddaşda (in-memory state) saxlanılır — history API,
-   hash (#), query (?page=) və ya path (/elaqe) istifadə edilmir.
+   MARŞRUTLAMA: URL HEÇ VAXT DƏYİŞMİR (in-memory state).
+   ÇOXİSTİFADƏÇİLİ: hər istifadəçinin bir neçə "məkanı" (biznesi) ola bilər —
+   həm sahibkar kimi, həm işçi kimi. Yuxarı soldaki menyudan keçid edilir.
    ========================================================================== */
 
-import { $, $$, icon, toast, emptyState } from './lib/dom.js';
+import { $, $$, icon, toast, emptyState, initialsOf } from './lib/dom.js';
 import {
   getClient,
   getSession,
@@ -16,17 +16,27 @@ import {
   listEmployees,
   listPayments,
   listBalances,
-  friendlyError
+  listWorkLogs,
+  listLeaves,
+  listNotes,
+  listActivity,
+  summarize,
+  friendlyError,
+  claimEmployeeByCode
 } from './lib/store.js';
 import { initAuth, showAuth } from './auth.js';
-import { openBusinessForm, openPaymentForm } from './ui/forms.js';
+import { openBusinessForm, openPaymentForm, openJoinCodeModal } from './ui/forms.js';
 
 import renderDashboard from './ui/views/dashboard.js';
 import renderEmployees, { renderEmployeeDetail } from './ui/views/employees.js';
 import renderPayments from './ui/views/payments.js';
+import renderWorklog from './ui/views/worklog.js';
+import renderLeaves from './ui/views/leaves.js';
+import renderNotes from './ui/views/notes.js';
 import renderReports from './ui/views/reports.js';
 import renderSettings from './ui/views/settings.js';
 import renderProfile from './ui/views/profile.js';
+import renderHelp from './ui/views/help.js';
 
 /* ------------------------------- STATE ---------------------------------- */
 
@@ -34,29 +44,113 @@ export const state = {
   session: null,
   user: null,
   profile: null,
-  role: 'none', // owner | employee | none
-  business: null,
-  employee: null,
+  spaces: [], // [{ type:'owner'|'employee', business, employee }]
+  activeIndex: 0,
   view: 'dashboard',
   params: {},
   employees: [],
   balances: [],
   payments: [],
+  worklogs: [],
+  leaves: [],
+  notes: [],
+  activity: [],
+  summary: null,
   loading: false,
   error: null
 };
 
+const STORE_KEY = 'rahathesab.biz';
+
 const VIEWS = {
-  dashboard: { title: 'İcmal', subtitle: 'Biznesinizin əməkhaqqı mənzərəsi', render: renderDashboard, roles: ['owner'] },
-  employees: { title: 'İşçilər', subtitle: 'İşçi heyəti və maaş parametrləri', render: renderEmployees, roles: ['owner'] },
-  payments: { title: 'Ödənişlər', subtitle: 'Avans, maaş və mükafat tarixçəsi', render: renderPayments, roles: ['owner'] },
-  reports: { title: 'Hesabatlar', subtitle: 'Aylıq dinamika və yekunlar', render: renderReports, roles: ['owner'] },
-  settings: { title: 'Tənzimləmələr', subtitle: 'Biznes profili və hesab ayarları', render: renderSettings, roles: ['owner'] },
-  profile: { title: 'Şəxsi kabinet', subtitle: 'Maaş, ödənişlər və qalıq', render: renderProfile, roles: ['owner', 'employee'] },
-  'employee-detail': { title: 'İşçi kartı', subtitle: 'Maaş hesablaması və tarixçə', render: renderEmployeeDetail, roles: ['owner'] }
+  dashboard: {
+    title: 'İcmal',
+    subtitle: 'Biznesin qısa mənzərəsi',
+    render: renderDashboard,
+    roles: ['owner', 'employee']
+  },
+  employees: {
+    title: 'İşçilər',
+    subtitle: 'Heyət və maaşlar',
+    render: renderEmployees,
+    roles: ['owner']
+  },
+  'employee-detail': {
+    title: 'İşçi kartı',
+    subtitle: 'Maaş hesablaması və tarixçə',
+    render: renderEmployeeDetail,
+    roles: ['owner']
+  },
+  payments: {
+    title: 'Ödənişlər',
+    subtitle: 'Avans, maaş və mükafatlar',
+    render: renderPayments,
+    roles: ['owner', 'employee']
+  },
+  worklog: {
+    title: 'Davamiyyət',
+    subtitle: 'Gündəlik iş saatları',
+    render: renderWorklog,
+    roles: ['owner', 'employee']
+  },
+  leaves: {
+    title: 'Məzuniyyət',
+    subtitle: 'İstəklər və qərarlar',
+    render: renderLeaves,
+    roles: ['owner', 'employee']
+  },
+  notes: {
+    title: 'Qeydlər',
+    subtitle: 'Tapşırıqlar və xatırlatmalar',
+    render: renderNotes,
+    roles: ['owner']
+  },
+  reports: {
+    title: 'Hesabatlar',
+    subtitle: 'Aylıq dinamika və yekunlar',
+    render: renderReports,
+    roles: ['owner']
+  },
+  settings: {
+    title: 'Tənzimləmələr',
+    subtitle: 'Biznes profili və hesab',
+    render: renderSettings,
+    roles: ['owner']
+  },
+  profile: {
+    title: 'Şəxsi kabinet',
+    subtitle: 'Maaş, ödənişlər və qalıq',
+    render: renderProfile,
+    roles: ['owner', 'employee']
+  },
+  help: {
+    title: 'Kömək',
+    subtitle: 'Sadə izahlar və addımlar',
+    render: renderHelp,
+    roles: ['owner', 'employee']
+  }
 };
 
 let authUnsub = null;
+
+export function activeSpace() {
+  return state.spaces[state.activeIndex] || null;
+}
+
+export function currentRole() {
+  const space = activeSpace();
+  return space ? space.type : 'none';
+}
+
+export function currentBusiness() {
+  const space = activeSpace();
+  return space ? space.business : null;
+}
+
+export function currentEmployee() {
+  const space = activeSpace();
+  return space ? space.employee || null : null;
+}
 
 /* -------------------------------- BOOT ---------------------------------- */
 
@@ -72,7 +166,6 @@ export async function boot() {
     await startApp(session);
   });
 
-  // OAuth / magic-link qayıdışı: URL-də token ola bilər — client özü təmizləyir
   try {
     const session = await getSession();
     if (session) {
@@ -86,7 +179,7 @@ export async function boot() {
   }
 
   if (!authUnsub) {
-    authUnsub = onAuthChange(async (event, session) => {
+    authUnsub = onAuthChange(async (event) => {
       if (event === 'SIGNED_OUT') {
         resetState();
         showAuth();
@@ -102,18 +195,10 @@ function showFatal(error) {
   $('#fatal-screen').hidden = false;
 
   const msg = $('#fatal-message');
-  if (msg) {
-    const text = friendlyError(error);
-    msg.textContent =
-      error?.message === 'MISSING_CONFIG'
-        ? 'Supabase URL və anon key tapılmadı. Render mühit dəyişənlərini yoxlayın.'
-        : text;
-  }
+  if (msg) msg.textContent = friendlyError(error);
 
   const retry = $('#fatal-retry');
-  if (retry) {
-    retry.onclick = () => window.location.reload();
-  }
+  if (retry) retry.onclick = () => window.location.reload();
 }
 
 /* ------------------------------ APP START -------------------------------- */
@@ -123,33 +208,22 @@ export async function startApp(session) {
     state.session = session;
     state.user = session.user;
 
-    const context = await loadContext(session);
-    state.role = context.role;
-    state.user = context.user;
-    state.profile = context.profile;
-    state.business = context.business;
-    state.employee = context.employee;
+    await buildSpaces();
 
-    if (state.role === 'none') {
+    if (!state.spaces.length) {
       showApp();
-      renderNoBusiness();
+      renderWelcome();
       return;
     }
 
     await refreshData();
     showApp();
-
-    if (state.role === 'employee') {
-      navigate('profile');
-    } else {
-      navigate('dashboard');
-    }
+    navigate(state.view && VIEWS[state.view] ? state.view : 'dashboard');
   } catch (err) {
     console.error('[boot] app start failed', err);
-    // Sxem quraşdırılmayıbsa aydın mesaj göstər
     if (/relation|does not exist|schema/i.test(String(err?.message || ''))) {
       showAuth();
-      toast('Baza strukturu hazır deyil. Supabase-də schema.sql faylını işə salın.', 'error', 9000);
+      toast('Baza hazır deyil. Supabase → SQL Editor → schema.sql faylını işə salın.', 'error', 9000);
       return;
     }
     if (/session|JWT|token/i.test(String(err?.message || ''))) {
@@ -162,18 +236,61 @@ export async function startApp(session) {
   }
 }
 
+/** İstifadəçinin bütün məkanlarını (sahibkar + işçi) yığır. */
+async function buildSpaces() {
+  const ctx = await loadContext(state.session);
+  state.profile = ctx.profile;
+  state.user = ctx.user;
+
+  const spaces = [];
+  for (const b of ctx.ownedBusinesses) {
+    spaces.push({ type: 'owner', business: b, employee: null });
+  }
+  for (const b of ctx.memberBusinesses) {
+    spaces.push({ type: 'employee', business: b, employee: b.employee });
+  }
+
+  state.spaces = spaces;
+
+  // Aktiv məkanı yaddaşdan bərpa et
+  let savedId = null;
+  try {
+    savedId = localStorage.getItem(STORE_KEY);
+  } catch (_) {
+    savedId = null;
+  }
+  const idx = savedId ? spaces.findIndex((s) => s.business.id === savedId) : -1;
+  state.activeIndex = idx >= 0 ? idx : 0;
+
+  rememberActive();
+}
+
+function rememberActive() {
+  const space = activeSpace();
+  try {
+    if (space) localStorage.setItem(STORE_KEY, space.business.id);
+    else localStorage.removeItem(STORE_KEY);
+  } catch (_) {
+    /* noop */
+  }
+}
+
 export function resetState() {
   state.session = null;
   state.user = null;
   state.profile = null;
-  state.role = 'none';
-  state.business = null;
-  state.employee = null;
+  state.spaces = [];
+  state.activeIndex = 0;
   state.view = 'dashboard';
   state.params = {};
   state.employees = [];
   state.balances = [];
   state.payments = [];
+  state.worklogs = [];
+  state.leaves = [];
+  state.notes = [];
+  state.activity = [];
+  state.summary = null;
 }
 
 function showApp() {
@@ -193,11 +310,7 @@ function showApp() {
   setText('#user-email', (user && user.email) || '—');
   setText('#user-avatar', initialsOf(name));
 
-  const bizName = (state.business && state.business.name) || 'Biznes yoxdur';
-  setText('#business-name', bizName);
-  setText('#business-avatar', initialsOf(bizName));
-  setText('#business-role', state.role === 'employee' ? 'İşçi' : 'Sahibkar');
-
+  renderSpaceHeader();
   applyRoleVisibility();
   bindShell();
 }
@@ -207,31 +320,39 @@ function setText(selector, value) {
   if (el) el.textContent = value;
 }
 
-function initialsOf(name) {
-  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+function renderSpaceHeader() {
+  const space = activeSpace();
+  const bizName = space ? space.business.name : 'RahatHesab';
+  setText('#business-name', bizName);
+  setText('#business-avatar', initialsOf(bizName));
+  setText('#business-role', space ? (space.type === 'owner' ? 'Sahibkar' : 'İşçi') : '—');
+
+  const switchBtn = $('#business-switch-btn');
+  if (switchBtn) switchBtn.disabled = state.spaces.length === 0;
 }
 
 function applyRoleVisibility() {
-  const isOwner = state.role === 'owner';
+  const role = currentRole();
+
   $$('#main-nav .nav__item').forEach((btn) => {
-    const view = btn.dataset.view;
-    const cfg = VIEWS[view];
-    if (!cfg) return;
-    const allowed = cfg.roles.includes(state.role);
+    const cfg = VIEWS[btn.dataset.view];
+    const explicit = btn.dataset.roles;
+    let allowed = cfg ? cfg.roles.includes(role) : true;
+    if (explicit === 'owner') allowed = allowed && role === 'owner';
     btn.hidden = !allowed;
   });
 
-  // Sahibkar üçün "Şəxsi kabinet" yalnız profil məlumatları üçündür
-  const quickAdd = $('#quick-add');
-  if (quickAdd) quickAdd.hidden = !isOwner;
-
-  // Bölmə başlıqları
   $$('#main-nav .nav__label').forEach((label) => {
-    label.hidden = !isOwner;
+    if (label.dataset.roles === 'owner') label.hidden = role !== 'owner';
   });
+
+  $$('[data-roles="owner"]').forEach((el) => {
+    if (el.closest('#main-nav')) return;
+    el.hidden = role !== 'owner';
+  });
+
+  const quickAdd = $('#quick-add');
+  if (quickAdd) quickAdd.hidden = role !== 'owner';
 }
 
 /* ------------------------------- SHELL ---------------------------------- */
@@ -242,7 +363,6 @@ function bindShell() {
   if (shellBound) return;
   shellBound = true;
 
-  // Menyu (mobil)
   const sidebar = $('#sidebar');
   const scrim = $('#scrim');
 
@@ -261,31 +381,24 @@ function bindShell() {
   $('#sidebar-close')?.addEventListener('click', closeSidebar);
   scrim?.addEventListener('click', closeSidebar);
 
-  // Naviqasiya
   $$('#main-nav .nav__item').forEach((btn) => {
     btn.addEventListener('click', () => {
       navigate(btn.dataset.view);
       closeSidebar();
-      // Mobil klaviatura bağlanması üçün
       if (document.activeElement) document.activeElement.blur();
     });
   });
 
-  // Sürətli ödəniş
   $('#quick-add')?.addEventListener('click', () => {
-    if (state.role !== 'owner') return;
+    if (currentRole() !== 'owner') return;
     openPaymentForm({
       employees: state.employees,
       payments: state.payments,
       currency: currencyOf(),
-      onSaved: async () => {
-        await refreshData();
-        rerender();
-      }
+      onSaved: refreshAndRender
     });
   });
 
-  // Çıxış
   $('#logout-btn')?.addEventListener('click', async () => {
     try {
       await signOut();
@@ -298,27 +411,152 @@ function bindShell() {
     }
   });
 
-  // Tema
   $('#theme-toggle')?.addEventListener('click', toggleTheme);
   applyTheme(getStoredTheme());
 
-  // Klaviatura: Escape ilə menyunu bağla
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && sidebar.classList.contains('is-open')) closeSidebar();
   });
 
-  // Ekran ölçüsü dəyişdikdə menyunu sıfırla
   window.addEventListener('resize', () => {
     if (window.innerWidth > 980) closeSidebar();
   });
+
+  bindBusinessSwitcher();
 }
+
+/* -------------------------- BİZNES SEÇİCİ ------------------------------- */
+
+function bindBusinessSwitcher() {
+  const btn = $('#business-switch-btn');
+  const menu = $('#business-menu');
+  if (!btn || !menu) return;
+
+  const close = () => {
+    menu.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+  };
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!menu.hidden) {
+      close();
+      return;
+    }
+    renderBusinessMenu();
+    menu.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+  });
+
+  document.addEventListener('click', (e) => {
+    if (menu.hidden) return;
+    if (e.target.closest('#bizswitch')) return;
+    close();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !menu.hidden) close();
+  });
+
+  menu.addEventListener('click', (e) => {
+    const item = e.target.closest('[data-space-index]');
+    if (!item) return;
+    const idx = Number(item.dataset.spaceIndex);
+    close();
+    switchSpace(idx);
+  });
+}
+
+function renderBusinessMenu() {
+  const menu = $('#business-menu');
+  if (!menu) return;
+
+  const items = state.spaces
+    .map((s, i) => {
+      const active = i === state.activeIndex;
+      return `
+        <button type="button" role="option" aria-selected="${active}" class="${active ? 'is-active' : ''}" data-space-index="${i}">
+          <span class="avatar avatar--sq" aria-hidden="true">${escapeAttr(initialsOf(s.business.name))}</span>
+          <span style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            ${escapeAttr(s.business.name)}
+            <small style="display:block;font-size:10.5px;color:var(--ink-4);font-weight:600">
+              ${s.type === 'owner' ? 'Sahibkar' : 'İşçi'}
+            </small>
+          </span>
+          ${active ? icon('i-check', 16) : ''}
+        </button>
+      `;
+    })
+    .join('');
+
+  const canCreate = currentRole() === 'owner' || state.spaces.some((s) => s.type === 'owner');
+
+  menu.innerHTML = `
+    ${items || '<p class="tiny muted" style="padding:10px">Biznes yoxdur.</p>'}
+    <div class="bizswitch__sep"></div>
+    <button type="button" class="bizswitch__add" data-menu-action="new-business">
+      ${icon('i-plus', 16)} Yeni biznes
+    </button>
+    <button type="button" data-menu-action="join-code">
+      ${icon('i-key', 16)} Kodla qoşul
+    </button>
+    ${canCreate ? '' : ''}
+  `;
+
+  menu.querySelector('[data-menu-action="new-business"]')?.addEventListener('click', () => {
+    menu.hidden = true;
+    $('#business-switch-btn')?.setAttribute('aria-expanded', 'false');
+    openBusinessForm({
+      onSaved: async () => {
+        await reloadSpaces();
+      }
+    });
+  });
+
+  menu.querySelector('[data-menu-action="join-code"]')?.addEventListener('click', () => {
+    menu.hidden = true;
+    $('#business-switch-btn')?.setAttribute('aria-expanded', 'false');
+    openJoinCodeModal({ onDone: reloadSpaces });
+  });
+}
+
+/** Məkanları yenidən yükləyir (yeni biznes / kodla qoşulma sonrası). */
+export async function reloadSpaces() {
+  await buildSpaces();
+  if (!state.spaces.length) {
+    renderWelcome();
+    return;
+  }
+  renderSpaceHeader();
+  applyRoleVisibility();
+  await refreshData();
+  if (!VIEWS[state.view] || !VIEWS[state.view].roles.includes(currentRole())) {
+    state.view = 'dashboard';
+  }
+  navigate(state.view);
+  toast('Yeniləndi.', 'ok');
+}
+
+export async function switchSpace(index) {
+  if (index === state.activeIndex || !state.spaces[index]) return;
+  state.activeIndex = index;
+  rememberActive();
+  renderSpaceHeader();
+  applyRoleVisibility();
+  state.view = 'dashboard';
+  await refreshData();
+  navigate('dashboard');
+  toast(`${state.spaces[index].business.name} açıldı.`, 'info', 2600);
+}
+
+/* ------------------------------- THEME ---------------------------------- */
 
 function toggleTheme() {
   const current = document.documentElement.getAttribute('data-theme') || 'light';
   const next = current === 'dark' ? 'light' : 'dark';
   applyTheme(next);
   try {
-    localStorage.setItem('hesab.theme', next);
+    localStorage.setItem('rahathesab.theme', next);
   } catch (_) {
     /* noop */
   }
@@ -327,7 +565,7 @@ function toggleTheme() {
 function getStoredTheme() {
   let stored = null;
   try {
-    stored = localStorage.getItem('hesab.theme');
+    stored = localStorage.getItem('rahathesab.theme');
   } catch (_) {
     stored = null;
   }
@@ -340,30 +578,29 @@ function applyTheme(theme) {
   const iconUse = $('#theme-icon');
   if (iconUse) iconUse.setAttribute('href', theme === 'dark' ? '#i-sun' : '#i-moon');
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', theme === 'dark' ? '#080d12' : '#f5f7f8');
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0d1519' : '#1F313F');
 }
 
 /* ----------------------------- NAVIGATION -------------------------------- */
 
-/**
- * Bölməyə keçid — URL-ə TOXUNMUR.
- * @param {string} view
- * @param {object} params
- */
 export function navigate(view, params = {}) {
   const cfg = VIEWS[view];
   if (!cfg) return;
-  if (!cfg.roles.includes(state.role)) {
-    toast('Bu bölməyə giriş icazəniz yoxdur.', 'error');
+  if (!cfg.roles.includes(currentRole())) {
+    const fallback = cfg.roles.includes(currentRole()) ? view : 'dashboard';
+    toast('Bu bölmə sizin üçün açıq deyil.', 'info', 2600);
+    if (fallback !== view) return navigate(fallback, params);
     return;
   }
 
   state.view = view;
   state.params = params || {};
 
-  // Aktiv naviqasiya
   $$('#main-nav .nav__item').forEach((btn) => {
-    btn.classList.toggle('is-active', btn.dataset.view === view);
+    const active = btn.dataset.view === view;
+    btn.classList.toggle('is-active', active);
+    if (active) btn.setAttribute('aria-current', 'page');
+    else btn.removeAttribute('aria-current');
   });
 
   const title = (params && params.title) || cfg.title;
@@ -371,17 +608,10 @@ export function navigate(view, params = {}) {
   setText('#page-title', title);
   setText('#page-subtitle', subtitle);
 
-  const navBtn = document.querySelector(`#main-nav .nav__item[data-view="${view}"]`);
-  if (navBtn) navBtn.setAttribute('aria-current', 'page');
-  $$('#main-nav .nav__item').forEach((btn) => {
-    if (btn.dataset.view !== view) btn.removeAttribute('aria-current');
-  });
-
   rerender();
   window.scrollTo({ top: 0, behavior: 'auto' });
 }
 
-/** Cari görünüşü yenidən çəkir */
 export function rerender() {
   const root = $('#view-root');
   if (!root) return;
@@ -391,20 +621,24 @@ export function rerender() {
 
   const ctx = {
     state,
-    role: state.role,
-    business: state.business,
-    employee: state.employee,
+    role: currentRole(),
+    business: currentBusiness(),
+    employee: currentEmployee(),
+    space: activeSpace(),
     employees: state.employees,
     balances: state.balances,
     payments: state.payments,
+    worklogs: state.worklogs,
+    leaves: state.leaves,
+    notes: state.notes,
+    activity: state.activity,
+    summary: state.summary,
     currency: currencyOf(),
     navigate,
-    refresh: async () => {
-      await refreshData();
-      rerender();
-    },
+    rerender,
+    refresh: refreshAndRender,
     refreshData,
-    rerender
+    reloadSpaces
   };
 
   try {
@@ -412,113 +646,187 @@ export function rerender() {
   } catch (err) {
     console.error('[view] render failed', err);
     root.innerHTML = emptyState({
-      title: 'Görünüş yüklənmədi',
+      title: 'Bölmə yüklənmədi',
       message: friendlyError(err),
-      iconName: 'i-alert'
+      iconName: 'i-alert',
+      action: '<button class="btn btn--primary" type="button" id="render-retry">Yenidən cəhd et</button>'
     });
+    $('#render-retry', root)?.addEventListener('click', () => rerender());
   }
 }
 
 export function currencyOf() {
-  return (state.business && state.business.currency) || 'AZN';
+  const b = currentBusiness();
+  return (b && b.currency) || 'AZN';
 }
 
 /* ------------------------------ DATA ------------------------------------ */
 
+export async function refreshAndRender() {
+  await refreshData();
+  rerender();
+}
+
 export async function refreshData() {
-  if (state.role === 'owner' && state.business) {
-    const [employees, balances, payments] = await Promise.all([
-      listEmployees(state.business.id),
-      listBalances(state.business.id),
-      listPayments({ businessId: state.business.id, limit: 400 })
+  const space = activeSpace();
+  if (!space) return;
+
+  const businessId = space.business.id;
+
+  if (space.type === 'owner') {
+    const [employees, balances, payments, worklogs, leaves, notes, activity] = await Promise.all([
+      listEmployees(businessId),
+      listBalances(businessId),
+      listPayments({ businessId, limit: 600 }),
+      listWorkLogs({ businessId, limit: 600 }),
+      listLeaves({ businessId, limit: 300 }),
+      listNotes(businessId),
+      listActivity(businessId, 10)
     ]);
     state.employees = employees;
     state.balances = balances;
     state.payments = payments;
-  } else if (state.role === 'employee' && state.employee) {
-    const [balances, payments] = await Promise.all([
+    state.worklogs = worklogs;
+    state.leaves = leaves;
+    state.notes = notes;
+    state.activity = activity;
+    state.summary = summarize(balances, employees);
+  } else {
+    const employeeId = space.employee?.id;
+    const [balances, payments, worklogs, leaves] = await Promise.all([
       listBalances(null),
-      listPayments({ employeeId: state.employee.id, limit: 200 })
+      employeeId ? listPayments({ employeeId, limit: 300 }) : Promise.resolve([]),
+      employeeId ? listWorkLogs({ employeeId, limit: 200 }) : Promise.resolve([]),
+      employeeId ? listLeaves({ employeeId, limit: 100 }) : Promise.resolve([])
     ]);
-    state.balances = balances;
-    state.payments = payments;
     state.employees = [];
+    state.balances = balances || [];
+    state.payments = payments || [];
+    state.worklogs = worklogs || [];
+    state.leaves = leaves || [];
+    state.notes = [];
+    state.activity = [];
+    state.summary = summarize(state.balances, balances ? balances.map((b) => ({ ...b })) : []);
   }
 
-  updateBadge();
+  updateBadges();
 }
 
-function updateBadge() {
-  const badge = $('#nav-employees-badge');
-  if (!badge) return;
-  if (state.role !== 'owner') {
-    badge.hidden = true;
-    return;
+function updateBadges() {
+  const empBadge = $('#nav-employees-badge');
+  if (empBadge) {
+    const count = state.employees.filter((e) => e.is_active).length;
+    empBadge.textContent = String(count);
+    empBadge.hidden = count === 0;
   }
-  const count = state.employees.filter((e) => e.is_active).length;
-  badge.textContent = String(count);
-  badge.hidden = count === 0;
+
+  const leaveBadge = $('#nav-leaves-badge');
+  if (leaveBadge) {
+    const pending = state.leaves.filter((l) => l.status === 'pending').length;
+    leaveBadge.textContent = String(pending);
+    leaveBadge.hidden = pending === 0;
+  }
+
+  const payLabel = $('#nav-payments-label');
+  if (payLabel) payLabel.textContent = currentRole() === 'employee' ? 'Maaşım' : 'Ödənişlər';
+
+  const wlLabel = $('#nav-worklog-label');
+  if (wlLabel) wlLabel.textContent = currentRole() === 'employee' ? 'İş saatlarım' : 'Davamiyyət';
 }
 
-/* --------------------------- NO BUSINESS -------------------------------- */
+/* --------------------------- WELCOME / NO BIZ --------------------------- */
 
-function renderNoBusiness() {
-  setText('#page-title', 'Biznesinizi yaradın');
-  setText('#page-subtitle', 'Başlamaq üçün bir addım qaldı');
+function renderWelcome() {
+  setText('#page-title', 'Xoş gəlmisiniz!');
+  setText('#page-subtitle', 'Başlamaq üçün bir seçim edin');
 
   const root = $('#view-root');
   if (!root) return;
 
+  const name = (state.profile && state.profile.full_name) || 'Dostum';
+
   root.innerHTML = `
-    <div class="card" style="max-width:640px;margin:0 auto">
-      <div class="card__body" style="padding:32px">
-        <div class="empty" style="padding:0;text-align:left;justify-items:start">
-          <div class="empty__icon">${icon('i-building', 24)}</div>
-          <h3 style="font-size:19px;letter-spacing:-.03em">Hesabınız hazırdır</h3>
-          <p style="max-width:52ch">
-            Hələ heç bir biznes profili yoxdur. Biznes adınızı daxil edin —
-            işçiləri əlavə edib maaş uçotuna dərhal başlaya biləcəksiniz.
-          </p>
+    <section class="card" style="max-width:760px;margin:0 auto">
+      <div class="card__body" style="padding:26px 22px">
+        <div class="row" style="gap:14px;align-items:flex-start">
+          <span class="avatar avatar--lg" aria-hidden="true">${escapeAttr(initialsOf(name))}</span>
+          <div style="flex:1 1 240px;min-width:0">
+            <h2 style="font-size:19px;letter-spacing:-.03em;font-weight:800">Salam, ${escapeAttr(name)}!</h2>
+            <p class="muted" style="font-size:13px;margin-top:4px;line-height:1.7">
+              Hesabınız hazırdır. İndi iki yoldan birini seçin:
+            </p>
+          </div>
         </div>
-        <div class="row" style="margin-top:22px">
-          <button class="btn btn--primary btn--lg" type="button" id="create-biz">
-            ${icon('i-plus', 18)} Biznes yarat
-          </button>
+
+        <div class="grid grid--2" style="margin-top:22px">
+          <article class="card" style="box-shadow:none;background:var(--surface-2)">
+            <div class="card__body">
+              <div class="stat__icon" style="margin-bottom:10px">${icon('i-building', 18)}</div>
+              <h3 style="font-size:15px;font-weight:800;letter-spacing:-.02em">Mən sahibkaram</h3>
+              <p class="tiny muted" style="margin-top:4px;line-height:1.65">
+                Biznesinizi yaradın, işçiləri əlavə edin və maaş uçotuna başlayın.
+              </p>
+              <button class="btn btn--primary btn--block" type="button" id="welcome-create-business" style="margin-top:14px">
+                ${icon('i-plus', 16)} Biznes yarat
+              </button>
+            </div>
+          </article>
+
+          <article class="card" style="box-shadow:none;background:var(--surface-2)">
+            <div class="card__body">
+              <div class="stat__icon stat__icon--info" style="margin-bottom:10px">${icon('i-key', 18)}</div>
+              <h3 style="font-size:15px;font-weight:800;letter-spacing:-.02em">Mən işçiyəm</h3>
+              <p class="tiny muted" style="margin-top:4px;line-height:1.65">
+                Sahibkarınızdan aldığınız 8 simvollu kodu daxil edin — kabinetiniz açılacaq.
+              </p>
+              <button class="btn btn--soft btn--block" type="button" id="welcome-join-code" style="margin-top:14px">
+                ${icon('i-key', 16)} Kodu daxil et
+              </button>
+            </div>
+          </article>
         </div>
-        <p class="muted" style="font-size:12.5px;margin-top:16px">
-          Qeyd: işçi hesabı ilə daxil olmusunuzsa, sahibkarınız sizi işçi
-          siyahısına əlavə etməlidir.
+
+        <div class="banner" style="margin-top:20px">
+          ${icon('i-info', 18)}
+          <span>
+            <strong>Kod hardan alınır?</strong>
+            Sahibkar «İşçilər» bölməsində hər işçinin kartında 8 simvollu kodu görür və sizə verir.
+          </span>
+        </div>
+
+        <p class="tiny muted center" style="margin-top:16px">
+          Hesab: ${escapeAttr((state.user && state.user.email) || '—')}
         </p>
       </div>
-    </div>
+    </section>
   `;
 
-  $('#create-biz', root)?.addEventListener('click', () => {
-    openBusinessForm({
-      onSaved: async () => {
-        const context = await loadContext(state.session);
-        state.role = context.role;
-        state.business = context.business;
-        state.employee = context.employee;
-        state.profile = context.profile;
-        showApp();
-        await refreshData();
-        navigate('dashboard');
-      }
-    });
+  $('#welcome-create-business', root)?.addEventListener('click', () => {
+    openBusinessForm({ onSaved: reloadSpaces });
+  });
+
+  $('#welcome-join-code', root)?.addEventListener('click', () => {
+    openJoinCodeModal({ onDone: reloadSpaces });
   });
 }
 
-/* ------------------------------ EXPORT ---------------------------------- */
+/* ------------------------------- HELPERS -------------------------------- */
+
+function escapeAttr(value) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 export { VIEWS };
 
 /* ------------------------------- BOOT ----------------------------------- */
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    boot();
-  });
+  document.addEventListener('DOMContentLoaded', boot);
 } else {
   boot();
 }

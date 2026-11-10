@@ -1,17 +1,8 @@
 /* ============================================================================
-   Hesab — Autentifikasiya ekranı
+   RahatHesab — Autentifikasiya ekranı
    ========================================================================== */
 
-import {
-  $,
-  $$,
-  icon,
-  toast,
-  showError,
-  setLoading,
-  isEmail,
-  escapeHtml
-} from './lib/dom.js';
+import { $, $$, icon, toast, showError, setLoading, isEmail } from './lib/dom.js';
 import { signIn, signUp, resetPassword, friendlyError } from './lib/store.js';
 
 const TITLES = {
@@ -28,7 +19,6 @@ export function initAuth(handler) {
   const yearEl = $('#auth-year');
   if (yearEl) yearEl.textContent = String(new Date().getFullYear());
 
-  // Tab keçidləri
   $$('[data-auth-tab]').forEach((btn) => {
     btn.addEventListener('click', () => switchTab(btn.dataset.authTab));
   });
@@ -45,13 +35,9 @@ export function initAuth(handler) {
     });
   });
 
-  // Şifrə gücü
   const pw = $('#reg-password');
-  if (pw) {
-    pw.addEventListener('input', () => updateMeter(pw.value));
-  }
+  if (pw) pw.addEventListener('input', () => updateMeter(pw.value));
 
-  // Formalar
   const loginForm = $('#login-form');
   if (loginForm) loginForm.addEventListener('submit', handleLogin);
 
@@ -88,7 +74,7 @@ export function switchTab(tab) {
   $('#register-form').hidden = name !== 'register';
   $('#reset-form').hidden = name !== 'reset';
 
-  $$('#login-error, #register-error, #reset-error, #reset-success').forEach((el) => {
+  $$('#login-error, #register-error, #reset-error, #reset-success, #register-success').forEach((el) => {
     el.hidden = true;
     el.textContent = '';
   });
@@ -102,7 +88,7 @@ export function showAuth() {
   $('#fatal-screen').hidden = true;
   $('#app-shell').hidden = true;
   $('#auth-screen').hidden = false;
-  document.title = 'Daxil ol — Hesab';
+  document.title = 'Daxil ol — RahatHesab';
 }
 
 function updateMeter(value) {
@@ -159,6 +145,7 @@ async function handleRegister(event) {
 
   const submit = $('#register-submit');
   const errorBox = $('#register-error');
+  const successBox = $('#register-success');
 
   const fullName = $('#reg-name').value.trim();
   const email = $('#reg-email').value.trim();
@@ -167,6 +154,7 @@ async function handleRegister(event) {
   const terms = $('#reg-terms').checked;
 
   showError(errorBox, '');
+  showError(successBox, '');
 
   if (fullName.length < 2) return showError(errorBox, 'Ad və soyadınızı tam yazın.');
   if (!isEmail(email)) return showError(errorBox, 'Düzgün e-poçt ünvanı daxil edin.');
@@ -184,20 +172,15 @@ async function handleRegister(event) {
       toast('Hesab yaradıldı!', 'ok');
       if (typeof onAuthenticated === 'function') await onAuthenticated(result.session);
     } else {
-      // E-poçt təsdiqi aktivdir
-      showError(errorBox, '');
-      const form = $('#register-form');
-      const old = form.querySelector('.form-success');
-      if (old) old.remove();
-      const note = document.createElement('p');
-      note.className = 'form-success';
-      note.textContent =
-        'Qeydiyyat tamamlandı. ' + email + ' ünvanına təsdiq linki göndərdik. Linki açdıqdan sonra daxil ola bilərsiniz.';
-      errorBox.parentNode.insertBefore(note, errorBox);
-      form.reset();
+      $('#register-form').reset();
       updateMeter('');
       switchTab('login');
-      $('#login-email').value = email;
+      const loginEmail = $('#login-email');
+      if (loginEmail) loginEmail.value = email;
+      showError(
+        successBox,
+        'Qeydiyyat tamamlandı. ' + email + ' ünvanına təsdiq linki göndərdik. Linki açıb daxil olun.'
+      );
       toast('Təsdiq linki göndərildi. Poçtunuzu yoxlayın.', 'info', 7000);
     }
   } catch (err) {

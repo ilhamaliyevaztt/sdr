@@ -18,12 +18,18 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const REQUIRED = [
   'index.html',
+  'manifest.webmanifest',
   'package.json',
   'render.yaml',
   'README.md',
   'supabase/schema.sql',
   'assets/css/styles.css',
-  'assets/favicon.svg',
+  'assets/img/logo-mark.png',
+  'assets/img/logo-512.png',
+  'assets/img/icon-192.png',
+  'assets/img/apple-touch-icon.png',
+  'assets/img/favicon-32.png',
+  'assets/img/favicon-64.png',
   'assets/js/app.js',
   'assets/js/auth.js',
   'assets/js/config.js',
@@ -35,9 +41,13 @@ const REQUIRED = [
   'assets/js/ui/views/dashboard.js',
   'assets/js/ui/views/employees.js',
   'assets/js/ui/views/payments.js',
+  'assets/js/ui/views/worklog.js',
+  'assets/js/ui/views/leaves.js',
+  'assets/js/ui/views/notes.js',
   'assets/js/ui/views/reports.js',
   'assets/js/ui/views/settings.js',
-  'assets/js/ui/views/profile.js'
+  'assets/js/ui/views/profile.js',
+  'assets/js/ui/views/help.js'
 ];
 
 const errors = [];
@@ -77,7 +87,10 @@ async function main() {
     log('  ✓ Xarici script yoxdur');
   }
 
-  const ids = ['boot-screen', 'fatal-screen', 'auth-screen', 'app-shell', 'view-root', 'modal-root', 'toast-root', 'main-nav'];
+  const ids = [
+    'boot-screen', 'fatal-screen', 'auth-screen', 'app-shell', 'view-root',
+    'modal-root', 'toast-root', 'main-nav', 'business-switch-btn', 'business-menu'
+  ];
   for (const id of ids) {
     if (!html.includes(`id="${id}"`)) errors.push(`index.html-də #${id} tapılmadı.`);
   }
@@ -167,7 +180,10 @@ async function main() {
 
   log('\n── SQL sxemi ──────────────────────────────────');
   const sql = await readFile(path.join(ROOT, 'supabase', 'schema.sql'), 'utf8');
-  const tables = ['profiles', 'businesses', 'employees', 'salary_payments'];
+  const tables = [
+    'profiles', 'businesses', 'business_members', 'employees',
+    'salary_payments', 'work_logs', 'leave_requests', 'notes', 'activity_log'
+  ];
   for (const t of tables) {
     if (!new RegExp(`create table if not exists public\\.${t}`, 'i').test(sql)) {
       errors.push(`SQL: public.${t} cədvəli yaradılmır.`);

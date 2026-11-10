@@ -1,11 +1,11 @@
 # ============================================================================
-#  Hesab — Render Blueprint
+#  RahatHesab — Render Blueprint
 #  Render.com → New → Blueprint → bu repoyu seçin.
-#  Static Site: build yoxdur, server yoxdur, yalnız statik fayllar.
+#  Static Site: server yoxdur, yalnız statik fayllar.
 # ============================================================================
 services:
   - type: web
-    name: hesab-emekhaqqi
+    name: rahathesab
     runtime: static
     buildCommand: npm run build
     staticPublishPath: ./dist

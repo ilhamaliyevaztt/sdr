@@ -1,0 +1,15 @@
+{
+  "name": "RahatHesab — Əməkhaqqı və İşçi İdarəetməsi",
+  "short_name": "RahatHesab",
+  "description": "Kiçik bizneslər üçün sadə əməkhaqqı, avans və ödəniş uçotu.",
+  "lang": "az",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F7FAF9",
+  "theme_color": "#1F313F",
+  "icons": [
+    { "src": "assets/img/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/img/logo-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

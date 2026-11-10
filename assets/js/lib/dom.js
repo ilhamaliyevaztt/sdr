@@ -1,5 +1,5 @@
 /* ============================================================================
-   Hesab — DOM köməkçiləri (modal, toast, ikon, forma)
+   RahatHesab — DOM köməkçiləri (modal, toast, ikon, forma, clipboard)
    ========================================================================== */
 
 export const $ = (sel, root = document) => root.querySelector(sel);
@@ -7,8 +7,7 @@ export const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel
 
 /** SVG sprite ikonu */
 export function icon(name, size = 20, cls = '') {
-  const vb = name === 'i-ledger' ? '0 0 32 32' : '0 0 24 24';
-  return `<svg viewBox="${vb}" width="${size}" height="${size}"${cls ? ` class="${cls}"` : ''} aria-hidden="true" focusable="false"><use href="#${name}"></use></svg>`;
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"${cls ? ` class="${cls}"` : ''} aria-hidden="true" focusable="false"><use href="#${name}"></use></svg>`;
 }
 
 export function escapeHtml(value) {
@@ -24,7 +23,7 @@ export function escapeHtml(value) {
 
 export function toast(message, type = 'ok', timeout = 4200) {
   const root = $('#toast-root');
-  if (!root) return;
+  if (!root) return () => {};
 
   const map = {
     ok: { icon: 'i-check-circle', cls: 'toast--ok' },
@@ -80,7 +79,7 @@ export function openModal({ title, subtitle = '', body = '', footer = '', wide =
         <h2 id="modal-title">${escapeHtml(title)}</h2>
         ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}
       </div>
-      <button class="iconbtn iconbtn--sm" type="button" data-modal-close aria-label="Bağla">${icon('i-close', 17)}</button>
+      ${closable ? `<button class="iconbtn iconbtn--sm" type="button" data-modal-close aria-label="Bağla">${icon('i-close', 17)}</button>` : ''}
     </div>
     <div class="modal__body">${body}</div>
     ${footer ? `<div class="modal__foot">${footer}</div>` : ''}
@@ -100,7 +99,6 @@ export function openModal({ title, subtitle = '', body = '', footer = '', wide =
   };
   document.addEventListener('keydown', onKey);
 
-  // Backdrop klik — dinləyici bir dəfə root-a bağlanır (aşağıda)
   const onBackdrop = (e) => {
     if (e.target === root && activeModal && activeModal.closable) closeModal();
   };
@@ -145,7 +143,6 @@ export function closeModal(silent = false) {
 
 let modalRootBound = false;
 
-/** Backdrop klik dinləyicisini yalnız bir dəfə bağlayır */
 function bindModalRoot(handler) {
   const root = $('#modal-root');
   if (!root || modalRootBound) return;
@@ -223,32 +220,6 @@ export function showError(container, message) {
   container.hidden = false;
 }
 
-export function fieldValue(formEl, name) {
-  const node = formEl.elements.namedItem(name);
-  if (!node) return '';
-  return String(node.value || '').trim();
-}
-
-export function clearFormErrors(formEl) {
-  $$('.field__error', formEl).forEach((n) => n.remove());
-  $$('.field__control.is-invalid', formEl).forEach((n) => n.classList.remove('is-invalid'));
-}
-
-export function markFieldInvalid(input, message) {
-  if (!input) return;
-  const control = input.closest('.field__control') || input;
-  control.classList.add('is-invalid');
-  input.setAttribute('aria-invalid', 'true');
-
-  const field = input.closest('.field');
-  if (field && !field.querySelector('.field__error')) {
-    const err = document.createElement('p');
-    err.className = 'field__error';
-    err.textContent = message;
-    field.appendChild(err);
-  }
-}
-
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/;
 
 export function isEmail(value) {
@@ -272,4 +243,82 @@ export function emptyState({ title, message, iconName = 'i-empty-box', action = 
       ${action}
     </div>
   `;
+}
+
+/* ------------------------------ CLIPBOARD -------------------------------- */
+
+export async function copyText(text) {
+  const value = String(text || '');
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch (_) {
+    /* fallback aşağıda */
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = value;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (_) {
+    return false;
+  }
+}
+
+/* ------------------------------ FILE HELPERS ----------------------------- */
+
+export function downloadFile(filename, content, mime = 'text/plain;charset=utf-8') {
+  const blob = content instanceof Blob ? content : new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+/** Fayl seçdirib mətnini qaytarır (CSV import üçün) */
+export function pickFile(accept = '.csv,text/csv') {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      if (!file) {
+        input.remove();
+        resolve(null);
+        return;
+      }
+      try {
+        const text = await file.text();
+        input.remove();
+        resolve({ name: file.name, text });
+      } catch (_) {
+        input.remove();
+        resolve(null);
+      }
+    });
+    input.click();
+  });
+}
+
+export function initialsOf(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }

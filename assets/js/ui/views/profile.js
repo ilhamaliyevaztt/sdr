@@ -1,312 +1,355 @@
 /* ============================================================================
-   Hesab — Şəxsi kabinet (işçi görünüşü)
+   RahatHesab — Şəxsi kabinet
+   Sahibkar: profil məlumatları + biznes siyahısı
+   İşçi:   maaş, ödənişlər, qalıq (yalnız oxuma) + əlaqə məlumatı
    ========================================================================== */
 
-import { $, $$, icon, escapeHtml, emptyState } from '../../lib/dom.js';
+import { icon, escapeHtml, toast, setLoading, downloadFile } from '../../lib/dom.js';
 import {
-  money,
-  moneyShort,
-  dateShort,
-  dateLong,
-  monthLabel,
-  monthShort,
-  periodOf,
-  initials,
-  KIND_LABELS,
-  METHOD_LABELS,
-  lastPeriods,
-  currentPeriod
+  money, dateShort, dateLong, monthLabel, KIND_LABELS, METHOD_LABELS,
+  initials, buildCsv, todayISO, currentPeriod
 } from '../../lib/format.js';
+import { updateProfile, updateMyContact, changePassword, friendlyError } from '../../lib/store.js';
+import { openLeaveForm } from '../forms.js';
 
 export default function renderProfile(root, ctx) {
-  const { state, employee, balances, payments, currency, role } = ctx;
-
-  // Sahibkar üçün də "Şəxsi kabinet" açılır — öz hesab məlumatları göstərilir
-  if (role === 'owner') {
-    renderOwnerProfile(root, ctx);
-    return;
-  }
-
-  if (!employee) {
-    root.innerHTML = emptyState({
-      title: 'İşçi kartı tapılmadı',
-      message:
-        'Hesabınız hələ biznesin işçi siyahısına bağlanmayıb. Sahibkarınız sizi eyni e-poçt ilə işçi kimi əlavə etdikdə məlumatlar burada görünəcək.',
-      iconName: 'i-user'
-    });
-    return;
-  }
-
-  const bal = balances.find((b) => b.id === employee.id) || {};
-  const myPayments = payments
-    .filter((p) => p.employee_id === employee.id)
-    .sort((a, b) => String(b.paid_at).localeCompare(String(a.paid_at)));
-
-  const salary = Number(employee.monthly_salary || 0);
-  const accrued = Number(bal.accrued_total || 0);
-  const paid = Number(bal.total_paid || 0);
-  const balance = Number(bal.balance || 0);
-  const paidThisMonth = Number(bal.paid_this_month || 0);
-  const months = Number(bal.months_count || 1);
-  const advance = Number(bal.total_advance || 0);
-
-  const progressPct = accrued > 0 ? Math.min(100, (paid / accrued) * 100) : 0;
-
-  const periods = lastPeriods(6);
-  const monthly = periods.map((p) => {
-    const rows = myPayments.filter((x) => periodOf(x.paid_at) === p && x.kind !== 'deduction');
-    return { period: p, total: rows.reduce((s, x) => s + Number(x.amount), 0) };
-  });
-  const maxMonthly = Math.max(...monthly.map((m) => m.total), 1);
-
-  root.innerHTML = `
-    <div class="stack">
-      <!-- Başlıq -->
-      <section class="card">
-        <div class="card__body">
-          <div class="detail-hero">
-            <span class="avatar avatar--lg">${escapeHtml(initials(employee.full_name))}</span>
-            <div class="detail-hero__text">
-              <h2>${escapeHtml(employee.full_name)}</h2>
-              <p>${escapeHtml(employee.position || 'Vəzifə göstərilməyib')}</p>
-              <div class="row" style="margin-top:8px;gap:6px">
-                <span class="badge badge--ok badge--dot">${employee.is_active ? 'Aktiv işçi' : 'Passiv'}</span>
-                <span class="badge badge--muted">İşə qəbul: ${dateShort(employee.hire_date)}</span>
-                <span class="badge badge--info">${months} ay hesablanıb</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Əsas rəqəmlər -->
-      <section class="grid grid--4">
-        ${card('Aylıq maaş', money(salary, currency), 'i-banknote', 'accent', 'Müqavilə üzrə')}
-        ${card('Hesablanmış cəm', money(accrued, currency), 'i-chart', '', `${months} ay üzrə`)}
-        ${card('Alınan pul', money(paid, currency), 'i-check-circle', 'info', `Bu ay: ${moneyShort(paidThisMonth, currency)}`)}
-        ${card('Qalıq məbləğ', money(balance, currency), 'i-wallet', balance > 0 ? 'warn' : '', balance > 0 ? 'Ödənilməli' : 'Borç yoxdur')}
-      </section>
-
-      <!-- Ödəniş tempi -->
-      <section class="grid grid--sidebar">
-        <article class="card">
-          <header class="card__head">
-            <div>
-              <h3 class="card__title">Hesablaşma tarixçəsi</h3>
-              <p class="card__sub">${myPayments.length} əməliyyat</p>
-            </div>
-          </header>
-          <div class="card__body card__body--flush">
-            ${
-              myPayments.length
-                ? `<div class="timeline" style="padding:4px 18px">
-                    ${myPayments
-                      .map((p) => {
-                        const tone =
-                          p.kind === 'advance' ? 'advance' : p.kind === 'salary' ? 'payment' : p.kind === 'bonus' ? 'salary' : 'adjust';
-                        const ic =
-                          p.kind === 'advance'
-                            ? 'i-wallet'
-                            : p.kind === 'salary'
-                              ? 'i-banknote'
-                              : p.kind === 'bonus'
-                                ? 'i-trending'
-                                : 'i-minus';
-                        return `
-                          <div class="tl-item">
-                            <div class="tl-icon tl-icon--${tone}">${icon(ic, 16)}</div>
-                            <div class="tl-main">
-                              <div class="tl-title">${escapeHtml(KIND_LABELS[p.kind] || p.kind)}</div>
-                              <div class="tl-meta">
-                                ${dateLong(p.paid_at)}
-                                ${p.method ? ' · ' + escapeHtml(METHOD_LABELS[p.method] || p.method) : ''}
-                                ${p.note ? ' · ' + escapeHtml(p.note) : ''}
-                              </div>
-                            </div>
-                            <div class="tl-amount ${p.kind === 'deduction' ? 'tl-amount--out' : 'tl-amount--in'}">
-                              ${p.kind === 'deduction' ? '−' : '+'}${moneyShort(p.amount, currency)}
-                            </div>
-                          </div>
-                        `;
-                      })
-                      .join('')}
-                  </div>`
-                : emptyState({
-                    title: 'Hələ ödəniş yoxdur',
-                    message: 'Sahibkarınız ödəniş qeyd etdikdə burada görünəcək.',
-                    iconName: 'i-receipt'
-                  })
-            }
-          </div>
-        </article>
-
-        <div class="stack">
-          <article class="card">
-            <header class="card__head">
-              <h3 class="card__title">Ödəniş tempi</h3>
-            </header>
-            <div class="card__body">
-              <div class="row row--between" style="align-items:flex-end;margin-bottom:10px">
-                <span class="muted" style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">Ödənilib</span>
-                <strong style="font-family:'JetBrains Mono',monospace;font-size:20px;letter-spacing:-.03em">
-                  ${progressPct.toFixed(0)}%
-                </strong>
-              </div>
-              <div class="progress progress--lg">
-                <div class="progress__bar ${progressPct >= 100 ? '' : progressPct >= 50 ? 'progress__bar--warn' : 'progress__bar--danger'}"
-                     style="width:${progressPct.toFixed(1)}%"></div>
-              </div>
-              <div class="kv" style="margin-top:12px">
-                <div class="kv__row">
-                  <span class="kv__key">Hesablanmış</span>
-                  <span class="kv__val mono">${money(accrued, currency)}</span>
-                </div>
-                <div class="kv__row">
-                  <span class="kv__key">Avanslar</span>
-                  <span class="kv__val mono">${money(advance, currency)}</span>
-                </div>
-                <div class="kv__row">
-                  <span class="kv__key">Ödənilmiş</span>
-                  <span class="kv__val mono">${money(paid, currency)}</span>
-                </div>
-                <div class="kv__row">
-                  <span class="kv__key" style="font-weight:700;color:var(--ink)">Qalıq</span>
-                  <span class="kv__val mono" style="color:${balance > 0 ? 'var(--danger)' : 'var(--accent)'}">
-                    ${money(balance, currency)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </article>
-
-          <article class="card">
-            <header class="card__head">
-              <h3 class="card__title">Aylıq ödənişlər</h3>
-            </header>
-            <div class="card__body">
-              <div class="bars" style="height:118px">
-                ${monthly
-                  .map((m) => {
-                    const h = Math.max(2, (m.total / maxMonthly) * 100);
-                    return `
-                      <div class="bars__col" title="${monthLabel(m.period)}: ${money(m.total, currency)}">
-                        <div class="bars__stack"><div class="bars__seg" style="height:${h}%"></div></div>
-                        <span class="bars__label">${monthShort(m.period)}</span>
-                      </div>
-                    `;
-                  })
-                  .join('')}
-              </div>
-            </div>
-          </article>
-
-          ${
-            employee.notes
-              ? `<article class="card">
-                  <header class="card__head"><h3 class="card__title">Qeyd</h3></header>
-                  <div class="card__body">
-                    <p style="font-size:13px;line-height:1.65;color:var(--ink-2);overflow-wrap:anywhere">${escapeHtml(employee.notes)}</p>
-                  </div>
-                </article>`
-              : ''
-          }
-        </div>
-      </section>
-
-      <section class="alert alert--soft" style="align-items:center">
-        ${icon('i-shield', 18)}
-        <span style="font-size:12.5px">
-          Bu kabinetdə yalnız sizə aid məlumatlar göstərilir. Digər işçilərin maaşları
-          və biznesin ümumi maliyyə göstəriciləri sizin üçün əlçatan deyil
-          (Supabase Row Level Security).
-        </span>
-      </section>
-    </div>
-  `;
+  if (ctx.role === 'employee') return renderEmployeeProfile(root, ctx);
+  return renderOwnerProfile(root, ctx);
 }
 
-/* --------------------------- SAHİBKAR KABİNETİ --------------------------- */
+/* ------------------------------- SAHİBKAR ------------------------------- */
 
 function renderOwnerProfile(root, ctx) {
-  const { state, business } = ctx;
-  const user = state.user;
-  const profile = state.profile || {};
+  const { state, profile, currency, businesses = [], reloadSpaces } = ctx;
+  const user = state.user || {};
+  const name = (profile && profile.full_name) || (user.user_metadata && user.user_metadata.full_name) || 'İstifadəçi';
+
+  const spaces = state.spaces || [];
 
   root.innerHTML = `
-    <div class="stack">
+    <section class="card" style="margin-bottom:14px">
+      <div class="card__body">
+        <div class="row" style="gap:14px;flex-wrap:nowrap;align-items:flex-start">
+          <span class="avatar avatar--lg" aria-hidden="true">${escapeHtml(initials(name))}</span>
+          <div style="flex:1 1 auto;min-width:0">
+            <h2 style="font-size:18px;font-weight:800;letter-spacing:-.03em">${escapeHtml(name)}</h2>
+            <p class="tiny muted" style="margin-top:2px">${escapeHtml(user.email || '—')}</p>
+            <div class="row" style="margin-top:8px;gap:6px">
+              <span class="badge badge--ok">Sahibkar</span>
+              <span class="badge">${spaces.length} məkan</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid grid--2">
       <section class="card">
+        <div class="card__head">
+          <div>
+            <h3 class="card__title">Məlumatlarım</h3>
+            <p class="card__sub">Ad və telefon</p>
+          </div>
+        </div>
         <div class="card__body">
-          <div class="detail-hero">
-            <span class="avatar avatar--lg">${escapeHtml(initials(profile.full_name || user?.email || 'S'))}</span>
-            <div class="detail-hero__text">
-              <h2>${escapeHtml(profile.full_name || 'Sahibkar')}</h2>
-              <p>${escapeHtml(user?.email || '')}</p>
-              <div class="row" style="margin-top:8px;gap:6px">
-                <span class="badge badge--ok badge--dot">Sahibkar</span>
-                <span class="badge badge--muted">${escapeHtml(business?.name || 'Biznes')}</span>
+          <form id="pf-form" style="display:grid;gap:12px" novalidate>
+            <div class="field">
+              <label for="pf-name">Ad və soyad</label>
+              <div class="field__control">
+                ${icon('i-user', 18)}
+                <input id="pf-name" type="text" value="${escapeHtml(name)}" />
               </div>
+            </div>
+            <div class="field">
+              <label for="pf-phone">Telefon</label>
+              <div class="field__control">
+                ${icon('i-receipt', 18)}
+                <input id="pf-phone" type="tel" value="${escapeHtml((profile && profile.phone) || '')}" placeholder="+994 50 000 00 00" />
+              </div>
+            </div>
+            <p class="form-error" id="pf-err" role="alert" hidden></p>
+            <button class="btn btn--primary btn--block btn--sm" type="submit" id="pf-save">Yadda saxla</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card__head">
+          <div>
+            <h3 class="card__title">Şifrə dəyiş</h3>
+            <p class="card__sub">Təhlükəsizlik</p>
+          </div>
+        </div>
+        <div class="card__body">
+          <form id="pw-form" style="display:grid;gap:12px" novalidate>
+            <div class="field">
+              <label for="pw1">Yeni şifrə</label>
+              <div class="field__control">
+                ${icon('i-lock', 18)}
+                <input id="pw1" type="password" autocomplete="new-password" placeholder="Ən azı 8 simvol" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="pw2">Təkrar</label>
+              <div class="field__control">
+                ${icon('i-shield', 18)}
+                <input id="pw2" type="password" autocomplete="new-password" placeholder="Təkrar yazın" />
+              </div>
+            </div>
+            <p class="form-error" id="pw-err" role="alert" hidden></p>
+            <button class="btn btn--ghost btn--block btn--sm" type="submit" id="pw-save">Şifrəni dəyiş</button>
+          </form>
+        </div>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:14px">
+      <div class="card__head">
+        <div>
+          <h3 class="card__title">Mənim məkanlarım</h3>
+          <p class="card__sub">Hansı bizneslərdə iştirak edirsiniz</p>
+        </div>
+      </div>
+      <div class="card__body card__body--flush">
+        <div class="list">
+          ${spaces.map((s, i) => `
+            <div class="list-row">
+              <span class="avatar avatar--sq" aria-hidden="true">${escapeHtml(initials(s.business.name))}</span>
+              <div class="list-row__main">
+                <div class="list-row__title">${escapeHtml(s.business.name)}</div>
+                <div class="list-row__sub">
+                  ${s.type === 'owner' ? 'Sahibkar' : 'İşçi'}
+                  ${i === state.activeIndex ? ' · hazırda açıq' : ''}
+                </div>
+              </div>
+              <div class="row-actions">
+                <span class="badge ${s.type === 'owner' ? 'badge--ok' : 'badge--info'}">
+                  ${s.type === 'owner' ? 'İdarə edir' : 'İşləyir'}
+                </span>
+              </div>
+            </div>
+          `).join('') || '<p class="tiny muted" style="padding:16px">Hələ məkan yoxdur.</p>'}
+        </div>
+      </div>
+    </section>
+  `;
+
+  const pfForm = root.querySelector('#pf-form');
+  pfForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errBox = root.querySelector('#pf-err');
+    const btn = root.querySelector('#pf-save');
+    errBox.hidden = true;
+
+    const fullName = root.querySelector('#pf-name').value.trim();
+    if (fullName.length < 2) {
+      errBox.textContent = 'Adınızı tam yazın.';
+      errBox.hidden = false;
+      return;
+    }
+
+    setLoading(btn, true);
+    try {
+      await updateProfile({ fullName, phone: root.querySelector('#pf-phone').value.trim() });
+      toast('Məlumatlar yeniləndi.', 'ok');
+      if (typeof reloadSpaces === 'function') await reloadSpaces();
+    } catch (err) {
+      errBox.textContent = friendlyError(err);
+      errBox.hidden = false;
+    } finally {
+      setLoading(btn, false);
+    }
+  });
+
+  const pwForm = root.querySelector('#pw-form');
+  pwForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errBox = root.querySelector('#pw-err');
+    const btn = root.querySelector('#pw-save');
+    errBox.hidden = true;
+
+    const p1 = root.querySelector('#pw1').value;
+    const p2 = root.querySelector('#pw2').value;
+    if (p1.length < 8) {
+      errBox.textContent = 'Şifrə ən azı 8 simvol olmalıdır.';
+      errBox.hidden = false;
+      return;
+    }
+    if (p1 !== p2) {
+      errBox.textContent = 'Şifrələr uyğun gəlmir.';
+      errBox.hidden = false;
+      return;
+    }
+
+    setLoading(btn, true);
+    try {
+      await changePassword(p1);
+      pwForm.reset();
+      toast('Şifrə dəyişdirildi.', 'ok');
+    } catch (err) {
+      errBox.textContent = friendlyError(err);
+      errBox.hidden = false;
+    } finally {
+      setLoading(btn, false);
+    }
+  });
+}
+
+/* -------------------------------- İŞÇİ ---------------------------------- */
+
+function renderEmployeeProfile(root, ctx) {
+  const { employee, balances, payments, currency, business, refresh } = ctx;
+  const me = balances.find((b) => b.id === employee?.id) || {};
+  const balance = Number(me.balance || 0);
+  const rate = Number(me.accrued_total || 0) > 0
+    ? Math.min(100, Math.round((Number(me.total_paid || 0) / Number(me.accrued_total)) * 100))
+    : 0;
+
+  const thisMonth = currentPeriod();
+  const monthPaid = payments
+    .filter((p) => (p.period || String(p.paid_at || '').slice(0, 7)) === thisMonth && p.kind !== 'deduction')
+    .reduce((s, p) => s + Number(p.amount || 0), 0);
+
+  root.innerHTML = `
+    <section class="card" style="margin-bottom:14px">
+      <div class="card__body">
+        <div class="row" style="gap:14px;flex-wrap:nowrap;align-items:flex-start">
+          <span class="avatar avatar--lg" aria-hidden="true">${escapeHtml(initials(employee?.full_name || '?'))}</span>
+          <div style="flex:1 1 auto;min-width:0">
+            <h2 style="font-size:18px;font-weight:800;letter-spacing:-.03em">${escapeHtml(employee?.full_name || '—')}</h2>
+            <p class="tiny muted" style="margin-top:2px">
+              ${escapeHtml(employee?.position || 'Vəzifə yoxdur')} · ${escapeHtml(business?.name || '—')}
+            </p>
+            <div class="row" style="margin-top:8px;gap:6px">
+              <span class="badge badge--ok">İşçi</span>
+              <span class="badge">${dateShort(employee?.hire_date)} tarixindən</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid grid--stats" style="margin-bottom:14px">
+      <article class="stat stat--brand">
+        <div class="stat__top"><span class="stat__label">Aylıq maaş</span><span class="stat__icon">${icon('i-banknote', 16)}</span></div>
+        <div class="stat__value stat__value--sm">${money(employee?.monthly_salary || 0, currency)}</div>
+      </article>
+      <article class="stat">
+        <div class="stat__top"><span class="stat__label">Bu ay aldım</span><span class="stat__icon stat__icon--info">${icon('i-wallet', 16)}</span></div>
+        <div class="stat__value stat__value--sm">${money(monthPaid, currency)}</div>
+        <div class="stat__hint">${monthLabel(thisMonth)}</div>
+      </article>
+      <article class="stat">
+        <div class="stat__top"><span class="stat__label">Ümumi aldım</span><span class="stat__icon">${icon('i-receipt', 16)}</span></div>
+        <div class="stat__value stat__value--sm">${money(me.total_paid || 0, currency)}</div>
+      </article>
+      <article class="stat ${balance > 0.5 ? 'stat--danger' : ''}">
+        <div class="stat__top"><span class="stat__label">Qalıq</span><span class="stat__icon ${balance > 0.5 ? 'stat__icon--danger' : ''}">${icon('i-alert', 16)}</span></div>
+        <div class="stat__value stat__value--sm">${money(Math.max(0, balance), currency)}</div>
+        <div class="stat__hint">${balance > 0.5 ? 'Ödənilməli məbləğ' : 'Borç yoxdur'}</div>
+      </article>
+    </div>
+
+    <div class="grid grid--2">
+      <section class="card">
+        <div class="card__head">
+          <div>
+            <h3 class="card__title">Hesablaşma</h3>
+            <p class="card__sub">İşə başladığınızdan bəri</p>
+          </div>
+        </div>
+        <div class="card__body">
+          <dl class="kv">
+            <div class="kv__row"><dt>İşə qəbul</dt><dd>${dateLong(employee?.hire_date)}</dd></div>
+            <div class="kv__row"><dt>İşlənmiş ay</dt><dd>${me.months_count || 1}</dd></div>
+            <div class="kv__row"><dt>Hesablanmış</dt><dd>${money(me.accrued_total || 0, currency)}</dd></div>
+            <div class="kv__row"><dt>Avanslar</dt><dd>${money(me.total_advance || 0, currency)}</dd></div>
+            <div class="kv__row"><dt>Maaş ödənişləri</dt><dd>${money(me.total_salary_paid || 0, currency)}</dd></div>
+            <div class="kv__row"><dt>Mükafatlar</dt><dd>${money(me.total_bonus || 0, currency)}</dd></div>
+            <div class="kv__row"><dt>Tutulmalar</dt><dd>${money(me.total_deduction || 0, currency)}</dd></div>
+          </dl>
+
+          <div style="margin-top:16px">
+            <div class="row row--between" style="margin-bottom:6px">
+              <span class="tiny muted">Ödəniş tempi</span>
+              <strong class="tiny">${rate}%</strong>
+            </div>
+            <div class="progress ${rate >= 90 ? '' : rate >= 50 ? 'progress--warn' : 'progress--danger'}">
+              <span style="width:${Math.max(2, rate)}%"></span>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="grid grid--2">
-        <article class="card">
-          <header class="card__head">
-            <h3 class="card__title">Hesab məlumatları</h3>
-          </header>
-          <div class="card__body">
-            <div class="kv">
-              <div class="kv__row"><span class="kv__key">Ad və soyad</span><span class="kv__val">${escapeHtml(profile.full_name || '—')}</span></div>
-              <div class="kv__row"><span class="kv__key">E-poçt</span><span class="kv__val">${escapeHtml(user?.email || '—')}</span></div>
-              <div class="kv__row"><span class="kv__key">Rol</span><span class="kv__val">Biznes sahibi</span></div>
-              <div class="kv__row"><span class="kv__key">Biznes</span><span class="kv__val">${escapeHtml(business?.name || '—')}</span></div>
-            </div>
+      <section class="card">
+        <div class="card__head">
+          <div>
+            <h3 class="card__title">Əlaqə məlumatım</h3>
+            <p class="card__sub">Telefonu siz dəyişə bilərsiniz</p>
           </div>
-          <footer class="card__foot">
-            <button class="btn btn--ghost btn--sm" type="button" data-act="goto-settings">
-              ${icon('i-settings', 15)} Tənzimləmələrə keç
-            </button>
-          </footer>
-        </article>
+        </div>
+        <div class="card__body">
+          <form id="emp-contact-form" style="display:grid;gap:12px" novalidate>
+            <div class="field">
+              <label for="ec-phone">Telefon</label>
+              <div class="field__control">
+                ${icon('i-receipt', 18)}
+                <input id="ec-phone" type="tel" value="${escapeHtml(employee?.phone || '')}" placeholder="+994 50 000 00 00" />
+              </div>
+            </div>
+            <p class="form-error" id="ec-err" role="alert" hidden></p>
+            <button class="btn btn--primary btn--block btn--sm" type="submit" id="ec-save">Yadda saxla</button>
+          </form>
 
-        <article class="card">
-          <header class="card__head">
-            <h3 class="card__title">Necə işləyir</h3>
-          </header>
-          <div class="card__body stack--sm">
-            <div class="alert alert--info">
-              ${icon('i-users', 17)}
-              <span>İşçilər bölməsindən işçi əlavə edin və e-poçtlarını qeyd edin.</span>
-            </div>
-            <div class="alert alert--info">
-              ${icon('i-link', 17)}
-              <span>İşçi həmin e-poçtla qeydiyyatdan keçdikdə avtomatik olaraq öz kabinetinə bağlanır.</span>
-            </div>
-            <div class="alert alert--soft">
-              ${icon('i-shield', 17)}
-              <span>İşçilər yalnız öz maaş və ödəniş məlumatlarını görür.</span>
-            </div>
+          <div class="banner" style="margin-top:14px">
+            ${icon('i-shield', 18)}
+            <span>
+              <strong>Maaşı yalnız sahibkar dəyişə bilər</strong>
+              Siz öz əlaqə məlumatınızı yeniləyə bilərsiniz, amma maaş və ödənişlərə toxuna bilməzsiniz.
+            </span>
           </div>
-        </article>
+
+          <button class="btn btn--ghost btn--block btn--sm" type="button" id="ec-leave" style="margin-top:12px">
+            ${icon('i-calendar', 15)} Məzuniyyət istə
+          </button>
+          <button class="btn btn--ghost btn--block btn--sm" type="button" id="ec-export" style="margin-top:8px">
+            ${icon('i-download', 15)} Ödəniş tarixçəmi yüklə (CSV)
+          </button>
+        </div>
       </section>
     </div>
   `;
 
-  $('[data-act="goto-settings"]', root)?.addEventListener('click', () => ctx.navigate('settings'));
-}
+  const form = root.querySelector('#emp-contact-form');
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errBox = root.querySelector('#ec-err');
+    const btn = root.querySelector('#ec-save');
+    errBox.hidden = true;
 
-/* ------------------------------- HELPERS -------------------------------- */
+    setLoading(btn, true);
+    try {
+      await updateMyContact(root.querySelector('#ec-phone').value.trim());
+      toast('Telefon yeniləndi.', 'ok');
+      await refresh();
+    } catch (err) {
+      errBox.textContent = friendlyError(err);
+      errBox.hidden = false;
+    } finally {
+      setLoading(btn, false);
+    }
+  });
 
-function card(label, value, iconName, tone, meta) {
-  return `
-    <article class="stat ${tone ? 'stat--' + tone : ''}">
-      <div class="stat__top">
-        <span class="stat__label">${escapeHtml(label)}</span>
-        <span class="stat__icon">${icon(iconName, 17)}</span>
-      </div>
-      <p class="stat__value">${value}</p>
-      <p class="stat__meta"><span>${escapeHtml(meta || '')}</span></p>
-    </article>
-  `;
+  root.querySelector('#ec-leave')?.addEventListener('click', () => {
+    openLeaveForm({ employeeId: employee?.id, onSaved: refresh });
+  });
+
+  root.querySelector('#ec-export')?.addEventListener('click', () => {
+    const rows = [['Tarix', 'Növ', 'Məbləğ', 'Üsul', 'Qeyd']];
+    for (const p of payments) {
+      rows.push([p.paid_at, KIND_LABELS[p.kind] || p.kind, p.amount, METHOD_LABELS[p.method] || '', p.note || '']);
+    }
+    downloadFile(`odenis-tarixcem-${todayISO()}.csv`, buildCsv(rows), 'text/csv;charset=utf-8');
+    toast('CSV yükləndi.', 'ok');
+  });
 }

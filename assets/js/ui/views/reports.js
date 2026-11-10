@@ -1,287 +1,246 @@
 /* ============================================================================
-   Hesab — Hesabatlar görünüşü
+   RahatHesab — Hesabatlar
    ========================================================================== */
 
-import { $, $$, icon, escapeHtml, emptyState, toast } from '../../lib/dom.js';
-import { summarize } from '../../lib/store.js';
+import { icon, emptyState, escapeHtml, downloadFile } from '../../lib/dom.js';
 import {
-  money,
-  moneyShort,
-  moneyCompact,
-  monthLabel,
-  monthShort,
-  periodOf,
-  lastPeriods,
-  dateShort,
-  initials,
-  KIND_LABELS,
-  downloadCsv
+  money, moneyCompact, monthLabel, lastPeriods, currentPeriod, dateShort,
+  KIND_LABELS, METHOD_LABELS, buildCsv, todayISO, initials, toNumber
 } from '../../lib/format.js';
 
+let rangeMonths = 6;
+
 export default function renderReports(root, ctx) {
-  const { employees, balances, payments, currency } = ctx;
-  const stats = summarize(balances, employees);
+  const { payments, employees, balances, currency, worklogs, summary } = ctx;
+  const s = summary || {};
 
-  const periods = lastPeriods(6);
-  const monthly = periods.map((p) => {
-    const rows = payments.filter((x) => periodOf(x.paid_at) === p);
-    const salary = rows.filter((x) => x.kind === 'salary').reduce((s, x) => s + Number(x.amount), 0);
-    const advance = rows.filter((x) => x.kind === 'advance').reduce((s, x) => s + Number(x.amount), 0);
-    const bonus = rows.filter((x) => x.kind === 'bonus').reduce((s, x) => s + Number(x.amount), 0);
-    const deduction = rows.filter((x) => x.kind === 'deduction').reduce((s, x) => s + Number(x.amount), 0);
-    return { period: p, salary, advance, bonus, deduction, total: salary + advance + bonus, count: rows.length };
-  });
+  const periods = lastPeriods(rangeMonths);
 
-  const maxTotal = Math.max(...monthly.map((m) => m.total), 1);
-  const active = employees.filter((e) => e.is_active);
-  const balanceMap = new Map(balances.map((b) => [b.id, b]));
+  const byMonth = new Map();
+  for (const p of payments) {
+    const key = p.period || String(p.paid_at || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(key)) continue;
+    if (!byMonth.has(key)) byMonth.set(key, { paid: 0, advance: 0, salary: 0, bonus: 0, deduction: 0, count: 0 });
+    const row = byMonth.get(key);
+    const amount = Number(p.amount || 0);
+    row.count += 1;
+    if (p.kind === 'deduction') row.deduction += amount;
+    else row.paid += amount;
+    if (row[p.kind] !== undefined) row[p.kind] += amount;
+  }
 
-  // İşçi üzrə yekun cədvəl
-  const perEmployee = active
-    .map((e) => {
-      const b = balanceMap.get(e.id) || {};
-      return {
-        emp: e,
-        accrued: Number(b.accrued_total || 0),
-        paid: Number(b.total_paid || 0),
-        balance: Number(b.balance || 0),
-        salary: Number(e.monthly_salary || 0)
-      };
-    })
-    .sort((a, b) => b.balance - a.balance);
+  const monthValues = periods.map((p) => byMonth.get(p) || { paid: 0, advance: 0, salary: 0, bonus: 0, deduction: 0, count: 0 });
+  const maxVal = Math.max(1, ...monthValues.map((m) => m.paid + m.deduction));
+  const totalInRange = monthValues.reduce((a, m) => a + m.paid, 0);
+  const avgMonth = totalInRange / Math.max(1, periods.length);
 
-  // Ay seçimi üzrə detallı hesabat (default: cari ay)
-  const months = Array.from(new Set(payments.map((p) => periodOf(p.paid_at)))).sort().reverse();
-  const reportPeriod = months[0] || new Date().toISOString().slice(0, 7);
-  const reportRows = perEmployee.map((r) => {
-    const rows = payments.filter((p) => p.employee_id === r.emp.id && periodOf(p.paid_at) === reportPeriod);
-    const paidInMonth = rows.filter((p) => p.kind !== 'deduction').reduce((s, p) => s + Number(p.amount), 0);
-    const advInMonth = rows.filter((p) => p.kind === 'advance').reduce((s, p) => s + Number(p.amount), 0);
-    return { ...r, paidInMonth, advInMonth };
-  });
+  const last = monthValues[monthValues.length - 1] || { paid: 0 };
+  const prev = monthValues[monthValues.length - 2] || { paid: 0 };
+  const trend = prev.paid > 0 ? ((last.paid - prev.paid) / prev.paid) * 100 : 0;
+
+  // İşçi üzrə yekun
+  const perEmployee = new Map();
+  for (const b of balances || []) {
+    perEmployee.set(b.id, {
+      name: b.full_name,
+      position: b.position,
+      salary: Number(b.monthly_salary || 0),
+      accrued: Number(b.accrued_total || 0),
+      paid: Number(b.total_paid || 0),
+      balance: Number(b.balance || 0),
+      active: !!b.is_active,
+      months: b.months_count || 1
+    });
+  }
+  const empRows = [...perEmployee.values()].sort((a, b) => b.balance - a.balance);
+
+  // Üsul üzrə bölgü
+  const byMethod = new Map();
+  for (const p of payments) {
+    if (p.kind === 'deduction') continue;
+    const key = p.method || 'other';
+    byMethod.set(key, (byMethod.get(key) || 0) + Number(p.amount || 0));
+  }
+  const methodTotal = [...byMethod.values()].reduce((a, b) => a + b, 0) || 1;
+
+  // Növ üzrə bölgü
+  const byKind = new Map();
+  for (const p of payments) {
+    byKind.set(p.kind, (byKind.get(p.kind) || 0) + Number(p.amount || 0));
+  }
+
+  // Davamiyyət cəmi
+  const workTotal = (worklogs || []).reduce((a, w) => a + Number(w.hours || 0) + Number(w.overtime || 0), 0);
 
   root.innerHTML = `
-    <div class="stack">
-      <section class="grid grid--4">
-        ${mini('Aylıq fond', moneyShort(stats.monthlyFund, currency), 'i-banknote', 'accent')}
-        ${mini('Hesablanmış cəm', moneyShort(stats.accrued, currency), 'i-chart', '')}
-        ${mini('Ödənilmiş', moneyShort(stats.paid, currency), 'i-check-circle', 'info')}
-        ${mini('Qalıq borc', moneyShort(stats.balance, currency), 'i-trending', stats.balance > 0 ? 'warn' : '')}
+    <div class="toolbar">
+      <div class="tabs" style="margin:0;flex:1 1 auto">
+        ${[3, 6, 12].map((m) => `
+          <button class="tabs__btn ${rangeMonths === m ? 'is-active' : ''}" type="button" data-range="${m}">${m} ay</button>
+        `).join('')}
+      </div>
+      <button class="btn btn--ghost btn--sm" type="button" id="rep-export">${icon('i-download', 15)} CSV</button>
+      <button class="btn btn--ghost btn--sm" type="button" id="rep-print">${icon('i-print', 15)} Çap</button>
+    </div>
+
+    <div class="grid grid--stats" style="margin-bottom:14px">
+      <article class="stat stat--brand">
+        <div class="stat__top"><span class="stat__label">Dövr üzrə cəm</span><span class="stat__icon">${icon('i-banknote', 16)}</span></div>
+        <div class="stat__value stat__value--sm">${moneyCompact(totalInRange, currency)}</div>
+        <div class="stat__hint">Son ${rangeMonths} ay</div>
+      </article>
+      <article class="stat">
+        <div class="stat__top"><span class="stat__label">Aylıq orta</span><span class="stat__icon stat__icon--info">${icon('i-chart', 16)}</span></div>
+        <div class="stat__value stat__value--sm">${moneyCompact(avgMonth, currency)}</div>
+        <div class="stat__hint">Orta ödəniş</div>
+      </article>
+      <article class="stat ${trend < 0 ? 'stat--danger' : ''}">
+        <div class="stat__top"><span class="stat__label">Keçən aya nisbətən</span><span class="stat__icon ${trend < 0 ? 'stat__icon--danger' : ''}">${icon('i-trending', 16)}</span></div>
+        <div class="stat__value stat__value--sm">${trend > 0 ? '+' : ''}${Math.round(trend)}%</div>
+        <div class="stat__hint">${monthLabel(periods[periods.length - 1])} vs ${monthLabel(periods[periods.length - 2])}</div>
+      </article>
+      <article class="stat">
+        <div class="stat__top"><span class="stat__label">İş saatı</span><span class="stat__icon">${icon('i-clock', 16)}</span></div>
+        <div class="stat__value stat__value--sm">${workTotal}</div>
+        <div class="stat__hint">Bütün qeydlər üzrə</div>
+      </article>
+    </div>
+
+    <div class="grid grid--main" style="margin-bottom:14px">
+      <section class="card">
+        <div class="card__head">
+          <div>
+            <h3 class="card__title">Aylıq ödəniş dinamikası</h3>
+            <p class="card__sub">Son ${rangeMonths} ay</p>
+          </div>
+        </div>
+        <div class="card__body">
+          <div class="bars" style="height:190px">
+            ${periods.map((p, i) => {
+              const m = monthValues[i];
+              const h = Math.max(3, Math.round((m.paid / maxVal) * 150));
+              return `
+                <div class="bars__item" title="${monthLabel(p)}: ${money(m.paid, currency)}">
+                  <span class="bars__value">${m.paid > 0 ? moneyCompact(m.paid, currency) : '—'}</span>
+                  <div class="bars__bar ${m.paid > 0 ? '' : 'bars__bar--soft'}" style="height:${h}px"></div>
+                  <span class="bars__label">${p.slice(5)}/${p.slice(2, 4)}</span>
+                </div>
+              `;
+            }).join('')}
+          </div>
+          <div class="legend" style="margin-top:14px">
+            <span><i></i> Ödənilən məbləğ</span>
+            <span><i class="soft"></i> Qeyd olmayan ay</span>
+          </div>
+        </div>
       </section>
 
       <section class="card">
-        <header class="card__head">
+        <div class="card__head">
           <div>
-            <h3 class="card__title">Aylıq ödənişlər</h3>
-            <p class="card__sub">Son 6 ay · növlər üzrə bölgü</p>
-          </div>
-          <div class="legend">
-            <span class="legend__item"><span class="legend__swatch"></span>Maaş</span>
-            <span class="legend__item"><span class="legend__swatch legend__swatch--advance"></span>Avans</span>
-            <span class="legend__item"><span class="legend__swatch legend__swatch--muted"></span>Mükafat</span>
-          </div>
-        </header>
-        <div class="card__body">
-          <div class="bars" style="height:170px">
-            ${monthly
-              .map((m) => {
-                const h = (m.total / maxTotal) * 100;
-                const salPct = m.total > 0 ? (m.salary / m.total) * 100 : 0;
-                const advPct = m.total > 0 ? (m.advance / m.total) * 100 : 0;
-                const bonPct = m.total > 0 ? (m.bonus / m.total) * 100 : 0;
-                return `
-                  <div class="bars__col" title="${monthLabel(m.period)}: ${money(m.total, currency)}">
-                    <div class="bars__stack">
-                      ${m.bonus > 0 ? `<div class="bars__seg bars__seg--muted" style="height:${Math.max(1, (h * bonPct) / 100)}%"></div>` : ''}
-                      ${m.advance > 0 ? `<div class="bars__seg bars__seg--advance" style="height:${Math.max(1, (h * advPct) / 100)}%"></div>` : ''}
-                      ${m.salary > 0 ? `<div class="bars__seg" style="height:${Math.max(1, (h * salPct) / 100)}%"></div>` : ''}
-                      ${m.total === 0 ? '<div class="bars__seg bars__seg--muted" style="height:2px"></div>' : ''}
-                    </div>
-                    <span class="bars__label">${monthShort(m.period)}</span>
-                  </div>
-                `;
-              })
-              .join('')}
-          </div>
-
-          <div class="table-wrap" style="margin-top:18px">
-            <table class="data">
-              <thead>
-                <tr>
-                  <th scope="col">Ay</th>
-                  <th scope="col" style="text-align:right">Maaş</th>
-                  <th scope="col" style="text-align:right">Avans</th>
-                  <th scope="col" style="text-align:right">Mükafat</th>
-                  <th scope="col" style="text-align:right">Tutulma</th>
-                  <th scope="col" style="text-align:right">Cəm</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${monthly
-                  .map(
-                    (m) => `
-                      <tr>
-                        <td data-label="Ay" style="font-weight:650">${monthLabel(m.period)}</td>
-                        <td class="num" data-label="Maaş">${moneyShort(m.salary, currency)}</td>
-                        <td class="num" data-label="Avans">${moneyShort(m.advance, currency)}</td>
-                        <td class="num" data-label="Mükafat">${moneyShort(m.bonus, currency)}</td>
-                        <td class="num" data-label="Tutulma" style="color:var(--danger)">${moneyShort(m.deduction, currency)}</td>
-                        <td class="num" data-label="Cəm" style="font-weight:700">${moneyShort(m.total, currency)}</td>
-                      </tr>
-                    `
-                  )
-                  .join('')}
-              </tbody>
-            </table>
+            <h3 class="card__title">Növlər və üsullar</h3>
+            <p class="card__sub">Pul necə ödənilib</p>
           </div>
         </div>
-      </section>
-
-      <section class="grid grid--sidebar">
-        <article class="card">
-          <header class="card__head">
-            <div>
-              <h3 class="card__title">İşçi üzrə yekun</h3>
-              <p class="card__sub">${reportPeriod ? monthLabel(reportPeriod) : '—'} ayı üzrə</p>
-            </div>
-            <button class="btn btn--ghost btn--xs" type="button" data-act="export">
-              ${icon('i-download', 14)} CSV
-            </button>
-          </header>
-          <div class="card__body card__body--flush">
-            ${
-              reportRows.length
-                ? `<div class="table-wrap">
-                    <table class="data">
-                      <thead>
-                        <tr>
-                          <th scope="col">İşçi</th>
-                          <th scope="col" style="text-align:right">Aylıq</th>
-                          <th scope="col" style="text-align:right">Bu ay ödənilib</th>
-                          <th scope="col" style="text-align:right">Ümumi qalıq</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        ${reportRows
-                          .map(
-                            (r) => `
-                              <tr>
-                                <td>
-                                  <div class="person">
-                                    <span class="avatar avatar--sm">${escapeHtml(initials(r.emp.full_name))}</span>
-                                    <span class="person__text">
-                                      <span class="person__name">${escapeHtml(r.emp.full_name)}</span>
-                                      <span class="person__role">${escapeHtml(r.emp.position || '—')}</span>
-                                    </span>
-                                  </div>
-                                </td>
-                                <td class="num" data-label="Aylıq">${moneyShort(r.salary, currency)}</td>
-                                <td class="num" data-label="Bu ay ödənilib">${moneyShort(r.paidInMonth, currency)}</td>
-                                <td class="num" data-label="Qalıq" style="color:${r.balance > 0 ? 'var(--danger)' : 'var(--ink)'}">
-                                  ${moneyShort(r.balance, currency)}
-                                </td>
-                              </tr>
-                            `
-                          )
-                          .join('')}
-                      </tbody>
-                    </table>
-                  </div>`
-                : emptyState({
-                    title: 'Məlumat yoxdur',
-                    message: 'Hesabat üçün əvvəlcə aktiv işçi əlavə edin.',
-                    iconName: 'i-chart'
-                  })
-            }
+        <div class="card__body">
+          <div class="kv">
+            ${Object.keys(KIND_LABELS).map((k) => {
+              const v = byKind.get(k) || 0;
+              if (!v) return '';
+              return `<div class="kv__row"><dt>${KIND_LABELS[k]}</dt><dd>${money(v, currency)}</dd></div>`;
+            }).join('') || '<p class="tiny muted">Hələ ödəniş yoxdur.</p>'}
           </div>
-        </article>
 
-        <div class="stack">
-          <article class="card">
-            <header class="card__head">
-              <h3 class="card__title">Yekun göstəricilər</h3>
-            </header>
-            <div class="card__body">
-              <div class="kv">
-                <div class="kv__row">
-                  <span class="kv__key">Aktiv işçi</span>
-                  <span class="kv__val">${stats.employeeCount} nəfər</span>
+          <div style="margin-top:18px;display:grid;gap:10px">
+            ${[...byMethod.entries()].map(([m, v]) => `
+              <div>
+                <div class="row row--between" style="margin-bottom:4px">
+                  <span class="tiny" style="font-weight:700">${escapeHtml(METHOD_LABELS[m] || m)}</span>
+                  <span class="tiny muted">${money(v, currency)}</span>
                 </div>
-                <div class="kv__row">
-                  <span class="kv__key">Aylıq maaş fondu</span>
-                  <span class="kv__val mono">${money(stats.monthlyFund, currency)}</span>
-                </div>
-                <div class="kv__row">
-                  <span class="kv__key">Hesablanmış cəm</span>
-                  <span class="kv__val mono">${money(stats.accrued, currency)}</span>
-                </div>
-                <div class="kv__row">
-                  <span class="kv__key">Ödənilmiş cəm</span>
-                  <span class="kv__val mono">${money(stats.paid, currency)}</span>
-                </div>
-                <div class="kv__row">
-                  <span class="kv__key">Avanslar</span>
-                  <span class="kv__val mono">${money(stats.advance, currency)}</span>
-                </div>
-                <div class="kv__row">
-                  <span class="kv__key" style="font-weight:700;color:var(--ink)">Qalıq borc</span>
-                  <span class="kv__val mono" style="color:${stats.balance > 0 ? 'var(--danger)' : 'var(--accent)'}">
-                    ${money(stats.balance, currency)}
-                  </span>
-                </div>
+                <div class="progress"><span style="width:${Math.round((v / methodTotal) * 100)}%"></span></div>
               </div>
-              <div class="progress" style="margin-top:14px">
-                <div class="progress__bar ${stats.payoutRate >= 100 ? '' : stats.payoutRate >= 50 ? 'progress__bar--warn' : 'progress__bar--danger'}"
-                     style="width:${Math.min(100, stats.payoutRate).toFixed(1)}%"></div>
-              </div>
-              <p class="muted" style="font-size:12px;margin-top:7px">
-                Ödəniş tempi: ${stats.payoutRate.toFixed(1)}%
-              </p>
-            </div>
-          </article>
-
-          <article class="card">
-            <header class="card__head">
-              <h3 class="card__title">Qeyd</h3>
-            </header>
-            <div class="card__body">
-              <div class="alert alert--info">
-                ${icon('i-info', 17)}
-                <span>
-                  Hesablanmış məbləğ hər işçinin <strong>aylıq maaşı × işə qəbuldan bu yana tam ay sayı</strong>
-                  düsturu ilə Supabase görünüşündə avtomatik hesablanır.
-                </span>
-              </div>
-            </div>
-          </article>
+            `).join('') || ''}
+          </div>
         </div>
       </section>
     </div>
-  `;
 
-  $('[data-act="export"]', root)?.addEventListener('click', () => {
-    const header = ['İşçi', 'Vəzifə', 'Aylıq maaş', 'Hesablanmış', 'Ödənilib', 'Qalıq'];
-    const body = perEmployee.map((r) => [
-      r.emp.full_name,
-      r.emp.position || '',
-      r.salary.toFixed(2),
-      r.accrued.toFixed(2),
-      r.paid.toFixed(2),
-      r.balance.toFixed(2)
-    ]);
-    downloadCsv(`hesabat-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...body]);
-    toast('Hesabat CSV kimi yükləndi.', 'ok');
-  });
-}
-
-function mini(label, value, iconName, tone) {
-  return `
-    <article class="stat ${tone ? 'stat--' + tone : ''}">
-      <div class="stat__top">
-        <span class="stat__label">${escapeHtml(label)}</span>
-        <span class="stat__icon">${icon(iconName, 17)}</span>
+    <section class="card">
+      <div class="card__head">
+        <div>
+          <h3 class="card__title">İşçilər üzrə yekun</h3>
+          <p class="card__sub">Bütün dövr ərzində</p>
+        </div>
       </div>
-      <p class="stat__value" style="font-size:19px">${value}</p>
-    </article>
+      <div class="card__body card__body--flush">
+        ${empRows.length ? `
+          <div class="table-wrap">
+            <table class="data">
+              <thead>
+                <tr>
+                  <th>İşçi</th>
+                  <th class="num">Aylıq maaş</th>
+                  <th class="num">Hesablanmış</th>
+                  <th class="num">Ödənilib</th>
+                  <th class="num">Qalıq</th>
+                  <th class="num">Ödəniş %</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${empRows.map((r) => {
+                  const pct = r.accrued > 0 ? Math.min(100, Math.round((r.paid / r.accrued) * 100)) : 0;
+                  return `
+                    <tr style="${r.active ? '' : 'opacity:.6'}">
+                      <td>
+                        <div class="cell-name">
+                          <span class="avatar avatar--sm" aria-hidden="true">${escapeHtml(initials(r.name))}</span>
+                          <span>
+                            <strong>${escapeHtml(r.name)}</strong>
+                            <small>${escapeHtml(r.position || '—')}${r.active ? '' : ' · passiv'}</small>
+                          </span>
+                        </div>
+                      </td>
+                      <td class="num">${money(r.salary, currency)}</td>
+                      <td class="num">${money(r.accrued, currency)}</td>
+                      <td class="num">${money(r.paid, currency)}</td>
+                      <td class="num" style="${r.balance > 0.5 ? 'color:var(--danger);font-weight:800' : ''}">${money(r.balance, currency)}</td>
+                      <td class="num">${pct}%</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        ` : emptyState({
+          title: 'Məlumat yoxdur',
+          message: 'İşçi əlavə etdikdən sonra hesabatlar burada görünəcək.',
+          iconName: 'i-chart'
+        })}
+      </div>
+    </section>
   `;
+
+  root.querySelectorAll('[data-range]').forEach((b) => {
+    b.addEventListener('click', () => {
+      rangeMonths = Number(b.dataset.range);
+      renderReports(root, ctx);
+    });
+  });
+
+  root.querySelector('#rep-export')?.addEventListener('click', () => {
+    const rows = [['Ay', 'Ödənilib', 'Avans', 'Maaş', 'Mükafat', 'Tutulma', 'Qeyd sayı']];
+    periods.forEach((p, i) => {
+      const m = monthValues[i];
+      rows.push([monthLabel(p), m.paid, m.advance, m.salary, m.bonus, m.deduction, m.count]);
+    });
+    rows.push([]);
+    rows.push(['İşçi', 'Aylıq maaş', 'Hesablanmış', 'Ödənilib', 'Qalıq']);
+    for (const r of empRows) rows.push([r.name, r.salary, r.accrued, r.paid, r.balance]);
+
+    downloadFile(`hesabat-${todayISO()}.csv`, buildCsv(rows), 'text/csv;charset=utf-8');
+    import('../lib/dom.js').then((m) => m.toast('Hesabat yükləndi.', 'ok'));
+  });
+
+  root.querySelector('#rep-print')?.addEventListener('click', () => window.print());
 }

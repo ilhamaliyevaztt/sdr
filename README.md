@@ -1,218 +1,305 @@
-# Hesab — Əməkhaqqı və İşçi İdarəetmə Platforması
+# RahatHesab — Əməkhaqqı və İşçi İdarəetmə Platforması
 
-Kiçik bizneslər üçün **əməkhaqqı uçotu** sistemi. Sahibkar işçiləri idarə edir,
+Kiçik bizneslər üçün **sadə əməkhaqqı uçotu** sistemi. Sahibkar işçiləri idarə edir,
 avans və maaş ödənişlərini qeyd edir; sistem qalıq borcu avtomatik hesablayır.
 İşçilər öz şəxsi kabinetlərində yalnız öz məlumatlarını görür.
 
 > **Tam statik sayt** — HTML + CSS + JavaScript. Node.js server, Express, API,
 > WebSocket və ya hər hansı backend infrastrukturu **yoxdur**.
-> Render.com **Static Site** üzərində əlavə konfiqurasiya olmadan işləyir.
+> Render.com **Static Site** və ya Cloudflare Pages üzərində işləyir.
 
 ---
 
-## 1. Xüsusiyyətlər
+## 1. Loqo
+
+Saytın loqosu `assets/img/` qovluğundadır. Loqo şəffaf PNG kimi hazırlanıb və
+bütün ölçülərdə (favicon, mobil ikon, Apple Touch Icon) istifadə olunur:
+
+| Fayl | Ölçü | İstifadə |
+|------|------|----------|
+| `assets/img/logo-mark.png` | 271×258 | Sidebar və giriş ekranı |
+| `assets/img/logo-512.png` | 512×512 | PWA manifest |
+| `assets/img/icon-192.png` | 192×192 | PWA manifest |
+| `assets/img/apple-touch-icon.png` | 180×180 | iOS ana ekran |
+| `assets/img/favicon-32.png` / `favicon-64.png` | 32 / 64 | Brauzer nişanı |
+
+Loqonun rəng palitrası dizayn sisteminə köçürülüb:
+yaşıl `#4ADB96` → `#22A06B`, tünd göy `#1F313F`.
+
+---
+
+## 2. Xüsusiyyətlər
+
+### Əsas funksiyalar
 
 | № | Funksiya | Vəziyyət |
 |---|----------|----------|
-| 1 | Qeydiyyat və giriş (Supabase Auth) — sahibkar hesab yaradır, biznesini əlavə edir | ✅ |
-| 2 | Əsas panel — işçi sayı, aylıq maaş fondu, ödənilmiş maaşlar, qalıq borc | ✅ |
-| 3 | İşçilər — ad, vəzifə, aylıq maaş ilə əlavə etmə / redaktə / silmə | ✅ |
-| 4 | Maaş hesablaması — hər işçinin maaşı avtomatik hesablanır | ✅ |
-| 5 | Avans və ödənişlər — qalıq borc avtomatik yenilənir | ✅ |
-| 6 | Hesablaşma tarixçəsi — tarixlə birlikdə tam jurnal | ✅ |
-| 7 | İşçi kabineti — öz maaşı, aldığı pul, qalıq məbləğ | ✅ |
-| 8 | Təhlükəsizlik — Supabase Row Level Security (RLS) | ✅ |
+| 1 | Qeydiyyat və giriş (Supabase Auth) | ✅ |
+| 2 | Çoxbiznesli sahibkar paneli — bir hesabda **istənilən sayda biznes** | ✅ |
+| 3 | İşçilər — əlavə etmə / redaktə / silmə / passiv etmə | ✅ |
+| 4 | Avtomatik aylıq maaş hesablaması (işə qəbul tarixindən bu günə) | ✅ |
+| 5 | Avans, maaş, mükafat, tutulma ödənişləri | ✅ |
+| 6 | Qalıq borcun avtomatik hesablanması | ✅ |
+| 7 | İşçi kabineti — **8 simvollu giriş kodu** ilə qoşulma | ✅ |
+| 8 | Row Level Security — hər sahibkarın məlumatı tam təcrid olunub | ✅ |
+| 9 | Tam responsive dizayn (telefon, planşet, masaüstü) | ✅ |
+| 10 | İşıqlı / qaranlıq tema | ✅ |
 
-### Əlavə funksiyalar
+### Əlavə funksiyalar (bu versiyada əlavə edildi)
 
-- **Hesabatlar** — son 6 ay üzrə dinamika, işçi üzrə yekun, ödəniş tempi faizi
-- **CSV ixracı** — işçi siyahısı, ödəniş tarixçəsi, hesabatlar
-- **Şifrə bərpası** — e-poçtla bərpa linki
-- **Tema** — işıqlı / qaranlıq rejim (yadda saxlanılır)
-- **Passiv işçi** — maaş hesablamasından çıxarmaq, tarixçəni saxlamaqla
-- **Mükafat və tutulma** — maaşdan əlavə əməliyyat növləri
-- **Ödəniş üsulu** — nağd / kart / bank köçürməsi
-- **İşçi hesabının avtomatik bağlanması** — işçi eyni e-poçtla qeydiyyatdan
-  keçdikdə `claim_employee_account()` funksiyası onu işçi kartına bağlayır
+**Çoxsahibkarlıq və çoxbizneslilik**
+- Bir hesabda **istənilən sayda biznes** yaratmaq — köhnə `businesses_owner_unique`
+  məhdudiyyəti silindi.
+- Sol yuxarıdaki **biznes seçici** menyu ilə bizneslər arasında keçid.
+- Bir istifadəçi eyni zamanda həm sahibkar, həm də işçi ola bilər — məkanlar
+  (`spaces`) siyahısında hər ikisi görünür.
+- Aktiv biznes `localStorage`-da yadda saxlanılır.
+
+**İşçi girişi problemi həll edildi**
+- Yeni `claim_employee_by_code(p_code)` SQL funksiyası — işçi kodu daxil edir və
+  dərhal qoşulur. **E-poçt təsdiqindən asılı deyil.**
+- Hər işçiyə avtomatik **8 simvollu unikal giriş kodu** (`access_code`) verilir.
+  Qarışdırıla bilən simvollar yoxdur (`O/0`, `I/1`).
+- Kod bir kliklə kopyalanır («İşçilər» cədvəlindəki nişana klik).
+- Kod yeniləmə (`regenerateEmployeeCode`) — köhnə kod ləğv olunur.
+- Biznes səviyyəsində **ümumi giriş kodu** (`join_code`) + yeniləmə funksiyası.
+- Köhnə `employees_user_unique_idx` məhdudiyyəti silindi — bir işçi
+  **birdən çox biznesdə** işləyə bilər.
+- E-poçt uyğunluğu ilə avtomatik qoşulma (`claim_employee_account`) ehtiyat üsul
+  kimi saxlanıldı.
+
+**Yeni bölmələr**
+- **Davamiyyət** — gündəlik iş saatları və əlavə iş saatları; işçi üzrə aylıq cəm.
+- **Məzuniyyət** — işçi istək göndərir, sahibkar təsdiqləyir/rədd edir.
+- **Qeydlər** — tapşırıq siyahısı, son tarix, tamamlama işarəsi, gecikmə xəbərdarlığı.
+- **Kömək** — 4 addımlı sadə izahlar + 10 sual-cavab (texniki dil olmadan).
+
+**İcmal (dashboard) təkmilləşdirmələri**
+- Kontekstual xəbərdarlıqlar: maaşı 0 olan işçilər, kabinetə qoşulmamış işçilər,
+  cavab gözləyən məzuniyyət istəkləri.
+- «Kimə nə qədər borcluyam?» cədvəli — bir kliklə həmin işçiyə ödəniş.
+- Son 6 ayın ödəniş qrafiki.
+- Maaş gününə qalan gün sayacı (biznesin `pay_day` sahəsi).
+- Son hərəkətlər jurnalı (`activity_log`).
+
+**İşçi kabineti**
+- Aylıq maaş, bu ay alınan pul, qalıq borc, aylıq iş saatı.
+- Ödəniş tarixçəsi ay-ay qruplaşdırılmış.
+- Öz telefonunu yeniləyə bilir (`update_my_contact`), maaşa toxuna bilmir.
+- Öz ödəniş tarixçəsini CSV kimi yükləyə bilir.
+
+**İdxal / ixrac**
+- İşçi siyahısının CSV ixracı (kodlar daxil).
+- Ödənişlərin CSV ixracı (filtrlər tətbiq olunmuş halda).
+- Davamiyyətin CSV ixracı.
+- Hesabatların CSV ixracı.
+- **İşçiləri CSV/Excel-dən kütləvi idxal** — yapışdır və əlavə et, sətir-sətir
+  xəta hesabatı ilə.
+
+**Digər**
+- Şifrə gücü göstəricisi, şifrə göstər/gizlət.
+- «Şifrəmi unutdum» → e-poçtla bərpa.
+- Şifrə dəyişmə (tənzimləmələr və şəxsi kabinetdə).
+- Biznes profili: hüquqi ad, valyuta (AZN/USD/EUR/TRY/RUB), telefon, e-poçt,
+  ünvan, maaş günü.
+- PWA manifest — telefonda «Ana ekrana əlavə et».
+- Çap üçün xüsusi CSS (hesabatları kağıza çıxarmaq üçün).
+- Klaviatura ilə idarə: `Escape` modal/menyu bağlayır, `Tab` fokus tələsi.
+- `prefers-reduced-motion` dəstəyi (animasiyaları söndürür).
+- Səssiz xəta idarəsi — hər xəta üçün Azərbaycan dilində aydın mesaj.
 
 ---
 
-## 2. URL davranışı (tələbə uyğun)
+## 3. Supabase qurulumu
 
-Sayt **tək səhifəli tətbiqdir (SPA)** və naviqasiya tamamilə yaddaşdaxilidir:
+### 3.1 Sxemi işə salın
+
+1. [supabase.com](https://supabase.com) → yeni layihə yaradın.
+2. **SQL Editor** → New query → `supabase/schema.sql` faylının **hamısını**
+   kopyalayıb **Run** edin.
+3. Skript **idempotentdir** — köhnə baza üzərində də təkrar işə salmaq təhlükəsizdir
+   (köhnə məhdudiyyətlər avtomatik silinir).
+
+### 3.2 Authentication
+
+- **Authentication → Providers → Email** aktiv olsun.
+- Tövsiyə: **Confirm email** söndürülsün ki, işçilər dərhal daxil ola bilsin.
+  (İşçi qoşulması artıq e-poçt təsdiqindən **asılı deyil** — kodla işləyir.)
+
+### 3.3 Açarlar
+
+**Project Settings → API** bölməsindən:
+
+- `Project URL` → `https://<ref>.supabase.co`
+- `publishable key` (`sb_publishable_...`) **və ya** `anon key` (`eyJ...`)
+
+⚠️ `service_role` / `sb_secret_...` açarı **heç vaxt** frontend-ə yazılmayın.
+`scripts/build.mjs` belə açar görsə build-i dayandırır.
+
+---
+
+## 4. Yerləşdirmə
+
+### Render.com
+
+Blueprint ilə: **New → Blueprint** → repoyu seçin (`render.yaml` avtomatik oxunur).
+
+Environment dəyişənləri:
+
+```
+SUPABASE_URL=https://<ref>.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+```
+
+### Cloudflare Pages
+
+```
+Build command:       npm run build
+Build output directory: dist
+```
+
+### Lokal
+
+```bash
+npm run check     # struktur + sintaksis + import yoxlaması
+npm run build     # dist/ yaradılır
+npm run preview   # http://localhost:3000
+```
+
+`assets/js/config.js` faylındaki dəyərlər fallback-dir; build zamanı environment
+dəyişənləri varsa, onlar üstün gəlir.
+
+---
+
+## 5. URL davranışı
+
+Sayt **tək səhifəli tətbiqdir (SPA)** və naviqasiya tamamilə yaddaşdaxildir:
 
 - ❌ `#anchor` — istifadə edilmir
 - ❌ `?page=...` — istifadə edilmir
-- ❌ `/muellimler` kimi route — istifadə edilmir
+- ❌ `/isci` kimi route — istifadə edilmir
 - ❌ `history.pushState` / `replaceState` — istifadə edilmir
 - ✅ Brauzerin ünvan sətri bölmələr arasında keçiddə **heç vaxt dəyişmir**
 
 ---
 
-## 3. Quraşdırma
-
-### 3.1 Supabase
-
-1. [supabase.com](https://supabase.com) → yeni layihə yaradın.
-2. **SQL Editor** → New query → `supabase/schema.sql` faylının **hamısını**
-   kopyalayıb **Run** edin.
-3. **Project Settings → API** bölməsindən götürün:
-   - `Project URL` → `https://<ref>.supabase.co`
-   - `publishable` açar (`sb_publishable_...`) — **tövsiyə olunur**
-   - və ya köhnə `anon public` açar (`eyJ...`)
-4. **Authentication → Providers → Email** aktiv olsun.
-   - Tövsiyə: *Confirm email* **aktiv** saxlanılsın — işçi hesabının e-poçt
-     sahibinə bağlanması bu təsdiqə əsaslanır.
-
-> ⚠️ **URL ↔ açar uyğunluğu:** `SUPABASE_URL`-dəki `<ref>` hissəsi açarın
-> JWT payload-ındaki `ref` ilə **eyni** olmalıdır. Ən çox rast gəlinən
-> "Supabase-ə qoşulmur" səbəbi URL-dəki yazı xətasıdır (məsələn
-> `bmslfaltcw…` yerinə `bmslfalctcw…`). `npm run check` və `npm run build`
-> bu uyğunsuzluğu aşkar edib dayanır.
-
-> ⚠️ `service_role` açarı və `sb_secret_...` açarı **heç vaxt** frontend-də
-> istifadə olunmur və repoya yazılmır. Hər ikisi RLS-i tam keçir.
-> `scripts/build.mjs` və `scripts/check.mjs` bunu yoxlayır; aşkar olunarsa
-> build dayanır.
-
-**Cari layihə dəyərləri** (`assets/js/config.js`):
-
-| Dəyişən | Dəyər |
-|---------|-------|
-| Layihə ref | `bmslfalctcwjonsasgez` |
-| `SUPABASE_URL` | `https://bmslfalctcwjonsasgez.supabase.co` |
-
-### 3.2 Render.com
-
-**Variant A — Blueprint (tövsiyə olunur):**
-
-1. Render → **New → Blueprint** → GitHub reponu seçin.
-2. `render.yaml` avtomatik oxunur.
-3. Environment dəyişənlərini doldurun:
-   - `SUPABASE_URL` = `https://<ref>.supabase.co`
-   - `SUPABASE_PUBLISHABLE_KEY` = `sb_publishable_...` (tövsiyə olunur)
-   - `SUPABASE_ANON_KEY` = anon açar (yalnız köhnə format istifadə edirsinizsə)
-4. **Apply** → deploy başlayır.
-
-> Əgər heç bir mühit dəyişəni təyin etməsəniz, build `assets/js/config.js`
-> faylındaki fallback dəyərləri istifadə edir — sayt yenə işləyir.
-
-**Variant B — əl ilə Static Site:**
-
-| Ayar | Dəyər |
-|------|-------|
-| Service Type | **Static Site** |
-| Build Command | `npm run build` |
-| Publish Directory | `dist` |
-| Environment | `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` |
-
-Custom Domain və HTTPS Render tərəfindən avtomatik idarə olunur.
-
-### 3.3 Lokal yoxlama
-
-```bash
-npm run check        # struktur + sintaksis + import + Supabase konfiq yoxlaması
-SUPABASE_URL=... SUPABASE_PUBLISHABLE_KEY=... npm run build
-npx serve dist       # və ya hər hansı statik server
-```
-
----
-
-## 4. Fayl strukturu
-
-```
-.
-├── index.html                     # Tək HTML səhifə (app shell + SVG ikon sprite)
-├── render.yaml                    # Render Blueprint (Static Site)
-├── package.json
-├── supabase/
-│   └── schema.sql                 # Cədvəllər, əlaqələr, RLS siyasətləri, görünüş
-├── assets/
-│   ├── favicon.svg
-│   ├── css/
-│   │   └── styles.css             # Dizayn sistemi, tam responsive
-│   └── js/
-│       ├── config.js              # Runtime konfiqurasiya (build zamanı yenilənir)
-│       ├── app.js                 # Nüvə: state, yaddaşdaxili router, shell
-│       ├── auth.js                # Giriş / qeydiyyat / şifrə bərpası
-│       ├── vendor/
-│       │   └── supabase.js        # supabase-js (lokal, CDN asılılığı yoxdur)
-│       ├── lib/
-│       │   ├── dom.js             # Modal, toast, forma köməkçiləri
-│       │   ├── format.js          # Pul, tarix, CSV formatlaşdırma
-│       │   └── store.js           # Supabase məlumat qatı + xəta xəritəsi
-│       └── ui/
-│           ├── forms.js           # İşçi / ödəniş / biznes modalları
-│           └── views/
-│               ├── dashboard.js   # İcmal
-│               ├── employees.js   # İşçilər + işçi kartı
-│               ├── payments.js    # Ödəniş tarixçəsi
-│               ├── reports.js     # Hesabatlar
-│               ├── settings.js    # Tənzimləmələr
-│               └── profile.js     # Şəxsi kabinet (işçi görünüşü)
-└── scripts/
-    ├── build.mjs                  # Statik build (dist/ + config.js)
-    └── check.mjs                  # Layihə yoxlama
-```
-
----
-
-## 5. Məlumat bazası
+## 6. Data modeli
 
 ### Cədvəllər
 
 | Cədvəl | Təyinat |
 |--------|---------|
-| `profiles` | Auth istifadəçisi profili (ad, e-poçt) |
-| `businesses` | Sahibkarın biznesi (`owner_id` → `auth.users`) |
-| `employees` | İşçi kartı (`business_id`, `user_id` → `auth.users`) |
-| `salary_payments` | Avans / maaş / mükafat / tutulma hərəkətləri |
+| `profiles` | İstifadəçi profili (ad, e-poçt, telefon) — `auth.users` ilə 1:1 |
+| `businesses` | Sahibkarın biznesi. **Çoxsaylı** (`owner_id` unique deyil) |
+| `business_members` | Biznes ↔ istifadəçi əlaqəsi (rol + status) |
+| `employees` | İşçi kartı + `access_code` (8 simvollu giriş kodu) |
+| `salary_payments` | Avans / maaş / mükafat / tutulma |
+| `work_logs` | Gündəlik iş saatları (unikal: işçi + tarix) |
+| `leave_requests` | Məzuniyyət istəyi (pending / approved / rejected) |
+| `notes` | Qeydlər və tapşırıqlar |
+| `activity_log` | Sadə fəaliyyət jurnalı |
 
-### Görünüş
+### Görünüşlər
 
-`v_employee_balances` — hər işçi üzrə:
+| Görünüş | Təyinat |
+|---------|---------|
+| `v_employee_balances` | İşçi üzrə hesablanmış maaş, ödənişlər, qalıq borc |
 
-- `months_count` — işə qəbuldan bu yana tam ay sayı
-- `accrued_total` = `monthly_salary × months_count`
-- `total_advance`, `total_salary_paid`, `total_bonus`, `total_deduction`
-- `total_paid` = avans + maaş + mükafat
-- `paid_this_month`
-- `balance` = hesablanmış − ödənilmiş − tutulmalar
+### Funksiyalar (RPC)
 
-Görünüş `security_invoker = on` ilə işləyir → RLS qaydaları ona da tətbiq olunur.
+| Funksiya | Təyinat |
+|----------|---------|
+| `claim_employee_by_code(code)` | **İşçi kodu ilə biznesə qoşulur** |
+| `claim_employee_account()` | E-poçt uyğunluğu ilə ehtiyat qoşulma |
+| `update_my_contact(phone)` | İşçi öz telefonunu yeniləyir |
+| `rotate_join_code(biznes_id)` | Biznesin ümumi kodunu yeniləyir |
+| `can_manage_business(id)` | RLS: istifadəçi biznesi idarə edə bilərmi |
+| `can_read_business(id)` | RLS: istifadəçi biznesi oxuya bilərmi |
+| `gen_code(len)` | Təsadüfi giriş kodu generatoru |
 
-### RLS siyasətləri
+### Hesablama düsturu
 
-| Cədvəl | Sahibkar | İşçi |
-|--------|----------|------|
-| `profiles` | öz sətri | öz sətri |
-| `businesses` | öz biznesi (CRUD) | — |
-| `employees` | öz biznesinin bütün işçiləri (CRUD) | yalnız öz kartı (SELECT) |
-| `salary_payments` | öz biznesinin bütün ödənişləri (CRUD) | yalnız öz tarixçəsi (SELECT) |
-
----
-
-## 6. Təhlükəsizlik qeydləri
-
-- Frontend-də yalnız **anon / publishable** açar var.
-- `service_role` / `sb_secret_...` açarı koda **heç vaxt** daxil edilmir;
-  `scripts/build.mjs` bu halda build-i dayandırır.
-- Bütün cədvəllərdə `ENABLE ROW LEVEL SECURITY` aktivdir.
-- Funksiyalar `SECURITY DEFINER` + `set search_path` ilə yazılıb (axtarış yolu
-  zəhərlənməsinə qarşı).
-- `claim_employee_account()` yalnız **təsdiqlənmiş e-poçt** üçün işləyir.
-- Bütün istifadəçi mətnləri HTML-ə yazılarkən escape olunur (XSS qoruması).
-- `localStorage` yalnız tema seçimi üçün istifadə olunur — məlumat bazası kimi yox.
+```
+hesablanmış  = aylıq maaş × (işə qəbuldan bu günə ay sayı)
+ödənilib     = bütün avans + maaş + mükafat
+qalıq borc   = hesablanmış − ödənilib − tutulmalar
+```
 
 ---
 
-## 7. Brauzer dəstəyi
+## 7. Təhlükəsizlik
 
-Chrome / Edge 100+, Firefox 100+, Safari 15.4+.
-Responsive: 320px-dən 4K-ya qədər — üfüqi daşma yoxdur.
+- Bütün cədvəllərdə **RLS aktivdir**.
+- Sahibkar yalnız `owner_id = auth.uid()` olan biznesi görür.
+- İşçi yalnız `user_id = auth.uid()` olan işçi kartını və öz ödənişlərini görür.
+- İşçi `salary_payments`, `employees` cədvəllərinə **yaza bilmir** (yalnız oxuyur).
+- İşçi `work_logs` / `leave_requests` cədvəllərinə yalnız öz adına yazır.
+- `claim_employee_by_code` `SECURITY DEFINER`-dır, amma yalnız öz hesabına bağlamağa
+  icazə verir; başqa hesaba bağlanmış kod `CODE_ALREADY_USED` xətası qaytarır.
+- Build skripti frontend-də `service_role` / `sb_secret_` açarı aşkar etsə dayanır.
 
 ---
 
-## 8. Lisenziya
+## 8. Bölmələr (owner)
+
+| Bölmə | Nə edir |
+|-------|---------|
+| **İcmal** | Maaş fondu, bu ay ödənilən, ümumi borc, borclu işçilər, xəbərdarlıqlar |
+| **İşçilər** | Siyahı, axtarış, filtrlər, CSV idxal/ixrac, giriş kodları |
+| **Ödənişlər** | Avans/maaş/mükafat/tutulma, növ-dövr-işçi filtrləri |
+| **Davamiyyət** | Gündəlik saatlar, işçi üzrə aylıq cəm |
+| **Məzuniyyət** | İstəklərin təsdiqi / rəddi |
+| **Qeydlər** | Tapşırıqlar, son tarixlər, tamamlama |
+| **Hesabatlar** | Aylıq dinamika, növ/üsul bölgüsü, işçi yekunları, çap |
+| **Tənzimləmələr** | Biznes profili, kodlar, şifrə, təhlükəli zona |
+| **Şəxsi kabinet** | Öz məlumatları, məkanlar siyahısı |
+| **Kömək** | Sadə izahlar, 10 sual-cavab |
+
+## 9. Bölmələr (employee)
+
+| Bölmə | Nə edir |
+|-------|---------|
+| **İcmal** | Aylıq maaş, bu ay alınan, qalıq, iş saatı |
+| **Maaşım** | Ödəniş tarixçəsi ay-ay |
+| **İş saatlarım** | Öz davamiyyət qeydləri (əlavə edə bilir) |
+| **Məzuniyyət** | İstək göndərmə, vəziyyəti izləmə |
+| **Şəxsi kabinet** | Hesablaşma, telefon yeniləmə, CSV ixracı |
+| **Kömək** | Sadə izahlar, 10 sual-cavab |
+
+---
+
+## 10. Layihə strukturu
+
+```
+webapp/
+├── index.html                    # Tək səhifə: boot, auth, app shell, ikon sprite
+├── manifest.webmanifest          # PWA manifest
+├── render.yaml                   # Render blueprint
+├── supabase/
+│   └── schema.sql                # Bütün cədvəllər, RLS, funksiyalar (idempotent)
+├── assets/
+│   ├── css/styles.css            # Dizayn sistemi (token, komponent, responsive)
+│   ├── img/                      # Loqo və ikonlar
+│   └── js/
+│       ├── app.js                # Nüvə: router, shell, biznes seçici, data
+│       ├── auth.js               # Giriş / qeydiyyat / şifrə bərpası
+│       ├── config.js             # Runtime konfiqurasiya (build zamanı yazılır)
+│       ├── lib/
+│       │   ├── dom.js            # modal, toast, clipboard, fayl, escape
+│       │   ├── format.js         # pul, tarix, CSV, sabitlər
+│       │   └── store.js          # Supabase məlumat qatı (bütün CRUD)
+│       ├── ui/
+│       │   ├── forms.js          # Bütün forma modalları
+│       │   └── views/            # 10 görünüş modulu
+│       └── vendor/supabase.js    # Supabase JS (lokal, CDN-siz)
+├── scripts/
+│   ├── build.mjs                 # dist/ yaradır + config.js yazır + yoxlayır
+│   └── check.mjs                 # struktur + sintaksis + import + RLS yoxlaması
+└── dist/                         # Build nəticəsi
+```
+
+---
+
+## 11. Lisenziya
 
 MIT
